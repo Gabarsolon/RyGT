@@ -196,7 +196,7 @@ namespace RyGT
             Text = "ryGT - Gran Turismo Sport";
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
             Font = new Font("Segoe UI", 9f);
-            ClientSize = new Size(720, 580);
+            ClientSize = new Size(720, 660);
             MinimumSize = new Size(600, 420);
             StartPosition = FormStartPosition.CenterScreen;
 
@@ -220,9 +220,23 @@ namespace RyGT
             modules = AddRow(table, 3, "System modules", settings.Modules);
             fonts = AddRow(table, 4, "Fonts", settings.Fonts);
 
-            AddOption(table, 5, "Show the game's splash screen while it starts", "show_splash", false);
-            AddOption(table, 6, "Show an FPS counter", "show_fps_counter", false);
-            AddOption(table, 7, "Show the game on Discord (Rich Presence)", "discord_rpc_enabled", true);
+            AddOption(table, 5, "Show the game's splash screen while it starts", "General", "show_splash", false);
+            AddOption(table, 6, "Show an FPS counter", "General", "show_fps_counter", false);
+            AddOption(table, 7, "Show the game on Discord (Rich Presence)", "General", "discord_rpc_enabled", true);
+            // shadGT's FSR 1 pass scales the game's 1920x1080 picture to the window or screen size.
+            var fsr = AddOption(table, 8, "Upscale with AMD FSR 1 (window or screen larger than 1080p)", "GPU", "fsr_enabled", false);
+            var rcas = AddOption(table, 9, "FSR sharpening (RCAS)", "GPU", "rcas_enabled", true);
+            rcas.Margin = new Padding(20, 4, 0, 0);
+            rcas.Enabled = fsr.Checked;
+            fsr.CheckedChanged += delegate { rcas.Enabled = fsr.Checked; };
+            // NVIDIA DLSS runs through the optional plugin (plugins/dlss): dlss\ryGT_dlss.dll and NVIDIA's
+            // nvngx_dlss.dll next to GTSport.exe. It is not part of the release, so the box stays grey without it.
+            bool dlssInstalled = File.Exists(Path.Combine(root, "dlss", "ryGT_dlss.dll")) &&
+                                 File.Exists(Path.Combine(root, "dlss", "nvngx_dlss.dll"));
+            var dlss = AddOption(table, 10, dlssInstalled
+                ? "Upscale with NVIDIA DLSS (RTX cards; used instead of FSR when it works)"
+                : "Upscale with NVIDIA DLSS (needs the DLSS plugin in the dlss folder)", "GPU", "dlss_enabled", false);
+            dlss.Enabled = dlssInstalled;
 
             var buttons = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0, 8, 0, 8) };
             setup = new Button { Text = "Set up", AutoSize = true };
@@ -232,19 +246,19 @@ namespace RyGT
             play.Click += delegate { Play(); };
             open.Click += delegate { Process.Start("explorer.exe", "\"" + root + "\""); };
             buttons.Controls.AddRange(new Control[] { setup, play, open });
-            table.Controls.Add(buttons, 0, 8);
+            table.Controls.Add(buttons, 0, 11);
             table.SetColumnSpan(buttons, 3);
 
             status = new Label { AutoSize = true, Margin = new Padding(0, 0, 0, 4) };
-            table.Controls.Add(status, 0, 9);
+            table.Controls.Add(status, 0, 12);
             table.SetColumnSpan(status, 3);
 
             log = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, Font = new Font("Consolas", 9f) };
-            table.Controls.Add(log, 0, 10);
+            table.Controls.Add(log, 0, 13);
             table.SetColumnSpan(log, 3);
-            table.RowCount = 11;
+            table.RowCount = 14;
             table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            for (int i = 1; i < 10; i++) table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            for (int i = 1; i < 13; i++) table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             table.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             Dark.Apply(this);
@@ -275,39 +289,39 @@ namespace RyGT
 
         string ConfigPath { get { return Path.Combine(root, "user", "custom_configs", "CUSA03220.json"); } }
 
-        /// A shadGT setting in the GT Sport config's General section (show_splash,
-        /// show_fps_counter, discord_rpc_enabled).
-        bool ReadGeneral(string key, bool fallback)
+        /// A shadGT setting in a section of the GT Sport config (General: show_splash,
+        /// show_fps_counter, discord_rpc_enabled; GPU: fsr_enabled, rcas_enabled, dlss_enabled).
+        bool ReadSetting(string sectionName, string key, bool fallback)
         {
             try
             {
                 var config = LoadConfig();
-                object general, value;
-                var section = config.TryGetValue("General", out general) ? general as Dictionary<string, object> : null;
+                object found, value;
+                var section = config.TryGetValue(sectionName, out found) ? found as Dictionary<string, object> : null;
                 if (section != null && section.TryGetValue(key, out value) && value is bool) return (bool)value;
             }
             catch { }
             return fallback;
         }
 
-        void WriteGeneral(string key, bool on)
+        void WriteSetting(string sectionName, string key, bool on)
         {
             var config = LoadConfig();
-            object general;
-            var section = config.TryGetValue("General", out general) ? general as Dictionary<string, object> : null;
-            if (section == null) { section = new Dictionary<string, object>(); config["General"] = section; }
+            object found;
+            var section = config.TryGetValue(sectionName, out found) ? found as Dictionary<string, object> : null;
+            if (section == null) { section = new Dictionary<string, object>(); config[sectionName] = section; }
             section[key] = on;
             Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath));
             File.WriteAllText(ConfigPath, new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(config),
                               new UTF8Encoding(false));
         }
 
-        CheckBox AddOption(TableLayoutPanel table, int row, string text, string key, bool fallback)
+        CheckBox AddOption(TableLayoutPanel table, int row, string text, string sectionName, string key, bool fallback)
         {
-            var box = new CheckBox { Text = text, AutoSize = true, Checked = ReadGeneral(key, fallback), Margin = new Padding(0, 4, 0, 0) };
+            var box = new CheckBox { Text = text, AutoSize = true, Checked = ReadSetting(sectionName, key, fallback), Margin = new Padding(0, 4, 0, 0) };
             box.CheckedChanged += delegate
             {
-                try { WriteGeneral(key, box.Checked); }
+                try { WriteSetting(sectionName, key, box.Checked); }
                 catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
             };
             table.Controls.Add(box, 0, row);

@@ -23,6 +23,14 @@ Unzip a release on the same drive as your game dump, run `RyGT.exe`, pick the ga
 press **Set up** and **Play**. The loader's source is in [loader](../../loader) (build it with
 `loader/build.cmd`).
 
+## Upscaling
+
+GT Sport draws at 1920x1080. With a larger window or screen, the launcher's **Upscale with AMD FSR 1**
+box scales it with FSR 1 (with optional RCAS sharpening); otherwise the picture is stretched. NVIDIA
+DLSS is available as a separate plugin you build and install yourself, because NVIDIA's SDK can't be
+shipped with the GPL renderer; see [plugins/dlss](../../plugins/dlss). The launcher's DLSS box stays
+grey until the plugin is installed.
+
 ## Setup by hand
 
 
