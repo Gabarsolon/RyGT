@@ -187,16 +187,16 @@ namespace RyGT
         readonly Settings settings;
         readonly TextBox game, update, modules, fonts, log;
         readonly Button setup, play;
-        readonly CheckBox splash;
         readonly Label status;
         volatile bool busy;
 
         public LoaderForm()
         {
             settings = new Settings(Path.Combine(root, "RyGT.ini"));
-            Text = "RyGT - Gran Turismo Sport";
+            Text = "ryGT - Gran Turismo Sport";
+            try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
             Font = new Font("Segoe UI", 9f);
-            ClientSize = new Size(720, 520);
+            ClientSize = new Size(720, 580);
             MinimumSize = new Size(600, 420);
             StartPosition = FormStartPosition.CenterScreen;
 
@@ -220,18 +220,9 @@ namespace RyGT
             modules = AddRow(table, 3, "System modules", settings.Modules);
             fonts = AddRow(table, 4, "Fonts", settings.Fonts);
 
-            splash = new CheckBox
-            {
-                Text = "Show the game's splash screen while it starts", AutoSize = true,
-                Checked = ReadSplashSetting(), Margin = new Padding(0, 8, 0, 0)
-            };
-            splash.CheckedChanged += delegate
-            {
-                try { WriteSplashSetting(splash.Checked); }
-                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
-            };
-            table.Controls.Add(splash, 0, 5);
-            table.SetColumnSpan(splash, 3);
+            AddOption(table, 5, "Show the game's splash screen while it starts", "show_splash", false);
+            AddOption(table, 6, "Show an FPS counter", "show_fps_counter", false);
+            AddOption(table, 7, "Show the game on Discord (Rich Presence)", "discord_rpc_enabled", true);
 
             var buttons = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0, 8, 0, 8) };
             setup = new Button { Text = "Set up", AutoSize = true };
@@ -241,19 +232,19 @@ namespace RyGT
             play.Click += delegate { Play(); };
             open.Click += delegate { Process.Start("explorer.exe", "\"" + root + "\""); };
             buttons.Controls.AddRange(new Control[] { setup, play, open });
-            table.Controls.Add(buttons, 0, 6);
+            table.Controls.Add(buttons, 0, 8);
             table.SetColumnSpan(buttons, 3);
 
             status = new Label { AutoSize = true, Margin = new Padding(0, 0, 0, 4) };
-            table.Controls.Add(status, 0, 7);
+            table.Controls.Add(status, 0, 9);
             table.SetColumnSpan(status, 3);
 
             log = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, Font = new Font("Consolas", 9f) };
-            table.Controls.Add(log, 0, 8);
+            table.Controls.Add(log, 0, 10);
             table.SetColumnSpan(log, 3);
-            table.RowCount = 9;
+            table.RowCount = 11;
             table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            for (int i = 1; i < 8; i++) table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            for (int i = 1; i < 10; i++) table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             table.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             Dark.Apply(this);
@@ -284,29 +275,44 @@ namespace RyGT
 
         string ConfigPath { get { return Path.Combine(root, "user", "custom_configs", "CUSA03220.json"); } }
 
-        /// shadGT's Show Splash setting (General.show_splash) in the GT Sport config.
-        bool ReadSplashSetting()
+        /// A shadGT setting in the GT Sport config's General section (show_splash,
+        /// show_fps_counter, discord_rpc_enabled).
+        bool ReadGeneral(string key, bool fallback)
         {
             try
             {
                 var config = LoadConfig();
                 object general, value;
                 var section = config.TryGetValue("General", out general) ? general as Dictionary<string, object> : null;
-                return section != null && section.TryGetValue("show_splash", out value) && value is bool && (bool)value;
+                if (section != null && section.TryGetValue(key, out value) && value is bool) return (bool)value;
             }
-            catch { return false; }
+            catch { }
+            return fallback;
         }
 
-        void WriteSplashSetting(bool show)
+        void WriteGeneral(string key, bool on)
         {
             var config = LoadConfig();
             object general;
             var section = config.TryGetValue("General", out general) ? general as Dictionary<string, object> : null;
             if (section == null) { section = new Dictionary<string, object>(); config["General"] = section; }
-            section["show_splash"] = show;
+            section[key] = on;
             Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath));
             File.WriteAllText(ConfigPath, new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(config),
                               new UTF8Encoding(false));
+        }
+
+        CheckBox AddOption(TableLayoutPanel table, int row, string text, string key, bool fallback)
+        {
+            var box = new CheckBox { Text = text, AutoSize = true, Checked = ReadGeneral(key, fallback), Margin = new Padding(0, 4, 0, 0) };
+            box.CheckedChanged += delegate
+            {
+                try { WriteGeneral(key, box.Checked); }
+                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
+            };
+            table.Controls.Add(box, 0, row);
+            table.SetColumnSpan(box, 3);
+            return box;
         }
 
         Dictionary<string, object> LoadConfig()
