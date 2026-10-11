@@ -22,6 +22,61 @@ namespace RyGT
 
         [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         public static extern bool CreateSymbolicLink(string link, string target, int flags);
+
+        [DllImport("dwmapi.dll")]
+        public static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
+
+        [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
+        public static extern int SetWindowTheme(IntPtr window, string appName, string idList);
+    }
+
+    /// Dark colors for the loader window.
+    static class Dark
+    {
+        public static readonly Color Back = Color.FromArgb(30, 30, 30);
+        public static readonly Color Field = Color.FromArgb(45, 45, 48);
+        public static readonly Color Button = Color.FromArgb(58, 58, 61);
+        public static readonly Color ButtonHover = Color.FromArgb(75, 75, 80);
+        public static readonly Color Accent = Color.FromArgb(14, 99, 156);
+        public static readonly Color AccentHover = Color.FromArgb(28, 120, 180);
+        public static readonly Color Border = Color.FromArgb(70, 70, 74);
+        public static readonly Color Text = Color.FromArgb(230, 230, 230);
+        public static readonly Color DimText = Color.FromArgb(150, 150, 150);
+
+        public static void Apply(Control control)
+        {
+            control.BackColor = Back;
+            control.ForeColor = Text;
+            var button = control as Button;
+            if (button != null)
+            {
+                bool accent = button.Tag as string == "accent";
+                button.FlatStyle = FlatStyle.Flat;
+                button.BackColor = accent ? Accent : Button;
+                button.FlatAppearance.BorderColor = accent ? Accent : Border;
+                button.FlatAppearance.MouseOverBackColor = accent ? AccentHover : ButtonHover;
+                button.FlatAppearance.MouseDownBackColor = accent ? Accent : Border;
+                button.Padding = new Padding(10, 2, 10, 2);
+            }
+            var box = control as TextBox;
+            if (box != null)
+            {
+                box.BackColor = Field;
+                box.BorderStyle = BorderStyle.FixedSingle;
+                box.HandleCreated += delegate { Native.SetWindowTheme(box.Handle, "DarkMode_Explorer", null); };
+            }
+            var check = control as CheckBox;
+            if (check != null) check.FlatStyle = FlatStyle.Flat;
+            foreach (Control child in control.Controls) Apply(child);
+        }
+
+        /// A dark title bar (Windows 10 2004 and later; ignored before).
+        public static void TitleBar(Form form)
+        {
+            int on = 1;
+            if (Native.DwmSetWindowAttribute(form.Handle, 20, ref on, sizeof(int)) != 0)
+                Native.DwmSetWindowAttribute(form.Handle, 19, ref on, sizeof(int));
+        }
     }
 
     /// Unwraps an unencrypted (fake-signed) PS4 SELF into a plain ELF.
@@ -180,7 +235,7 @@ namespace RyGT
 
             var buttons = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0, 8, 0, 8) };
             setup = new Button { Text = "Set up", AutoSize = true };
-            play = new Button { Text = "Play", AutoSize = true };
+            play = new Button { Text = "Play", AutoSize = true, Tag = "accent" };
             var open = new Button { Text = "Open folder", AutoSize = true };
             setup.Click += delegate { StartSetup(); };
             play.Click += delegate { Play(); };
@@ -201,6 +256,10 @@ namespace RyGT
             for (int i = 1; i < 8; i++) table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             table.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
+            Dark.Apply(this);
+            intro.ForeColor = Dark.DimText;
+            HandleCreated += delegate { Dark.TitleBar(this); };
+            Shown += delegate { ActiveControl = play.Enabled ? (Control)play : setup; };
             RefreshState();
         }
 
@@ -557,6 +616,26 @@ namespace RyGT
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             if (args.Contains("--setup")) return new LoaderForm().SetupWithoutWindow();
+            if (args.Length == 2 && args[0] == "--snapshot")
+            {
+                // Renders the window's contents to a PNG (for checking the layout).
+                using (var form = new LoaderForm())
+                {
+                    form.StartPosition = FormStartPosition.Manual;
+                    form.Location = new Point(-4000, -4000);
+                    form.ShowInTaskbar = false;
+                    form.Show();
+                    Application.DoEvents();
+                    var content = form.Controls[0];
+                    using (var image = new Bitmap(content.Width, content.Height))
+                    {
+                        content.DrawToBitmap(image, new Rectangle(Point.Empty, content.Size));
+                        image.Save(args[1], System.Drawing.Imaging.ImageFormat.Png);
+                    }
+                    form.Close();
+                }
+                return 0;
+            }
             Application.Run(new LoaderForm());
             return 0;
         }
