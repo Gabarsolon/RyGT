@@ -49,3 +49,11 @@ own decrypted dump of CUSA03220 with update 1.69 and your own firmware files.
 
 Boots, menus, races and the race summary work, at about 42-60 fps in races depending on how many
 cars are on screen. The first 30 seconds of a race can stutter while pipelines compile.
+
+Fixed in the second build of 2026-10-11: the crash on a fresh save at boot, striped photos in
+Brand Central and black Scapes/dynamic scenes (the renderer now protects the game code's red
+zones from Windows exception frames), the crash when buying a car (the game's clocks stand still
+while shaders compile) and a crash at one showroom dynamic scene.
+
+Known issues: the screen stays white for about 6 seconds before the home menu (black on a PS4),
+and one showroom dynamic scene renders black.
