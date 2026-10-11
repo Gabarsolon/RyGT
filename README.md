@@ -1,110 +1,115 @@
-# Ryty
+# RyGT
 
-Automatic porting of PlayStation 5 and PlayStation 4 executables to native Linux, Windows,
-and experimental macOS binaries.
+**Gran Turismo Sport running as a native Windows program.**
 
-Ryty includes a [relinker](core/relinker) that converts the executable to the
-target system's native format and implementations of
-[system PRX libraries](core/libs/prx) suitable for dynamic linking. No
-emulation, no separate runtime process: guest code runs as host code.
+RyGT ports Gran Turismo Sport (CUSA03220, update 1.69) from PlayStation 4 to Windows. The game is
+not emulated: RyGT's converter turns the game's executable into `GTSport.exe`, the game code runs
+directly on your CPU, and RyGT's libraries stand in for the PS4 system. Graphics go through
+[shadGT](https://github.com/mlgprorektm8/shadGT/tree/ryty-gpu)'s Vulkan renderer, built as the
+game's video output library.
 
-Ryty is a fork of [AnyPS5](https://github.com/boykopovar/AnyPS5) - see
-[authors](AUTHORS.md) and [acknowledgments](#acknowledgments).
+RyGT is a fork of [Ryty](https://github.com/aarvsn/Ryty), the general PS4/PS5 porting tool, with
+everything GT Sport needs added on top.
 
-## Highlights
+## Status
 
-* **Full AMD SHA extension lowering** - all seven SHA-NI instructions
-  (SHA1RNDS4, SHA1NEXTE, SHA1MSG1/2, SHA256RNDS2, SHA256MSG1/2) are lowered
-  to SSE2-only stubs, hardware-verified by a 360,360-assertion suite.
-* **AMD-only instruction coverage** - RDPRU, MCOMMIT, RDPID (with REX.B),
-  PREFETCHW, FEMMS, MONITORX/MWAITX, CLZERO, EXTRQ/INSERTQ and MOVNTSS/SD
-  are lowered in place or through out-of-line stubs; short sites absorb
-  neighbouring instructions.
-* **PlayStation 4 and PlayStation 5 Support** - Auto-detection and explicit console selection (`--ps4`, `--ps5`, `--console auto|ps4|ps5`) to port both PS4 and PS5 executables.
-* **Experimental macOS Target with Metal** - `--macos` target support with Objective-C / Objective-C++ Metal API graphics rendering bridge.
-* **Qt6 GUI** (`ryty-gui`) on Linux, Windows, and macOS, shipped with the Qt6 runtime
-  bundled (self-contained AppImage on Linux, windeployqt DLL set on Windows).
-* **JSON porting report** (`--report`) with per-site substitutions, summary
-  counters and warnings.
-* **Hardened parsing** - `DT_STRSZ`-bounded strings, 8-byte GOT slot
-  alignment checks, and a resilient level-1 NID filter that keeps every
-  reference when CFG analysis cannot run.
+| Area | State |
+| --- | --- |
+| Boot, menus, car and track selection | Working |
+| Races | Working, about 42-60 fps depending on how many cars are on screen |
+| Race summary and results | Working |
+| Audio | Working |
+| Controllers | Working through SDL |
+| Online features | Not supported |
 
-Unsupported or unexpected states strictly throw `std::runtime_error`;
-`what()` is printed to stderr and the process terminates.
+Known issues:
+- The first 30 seconds of a race can stutter while graphics pipelines compile.
+- A few draws in the race summary can occasionally read garbage vertex descriptors; those draws
+  are skipped.
 
-## Build
+Tested on Windows 11 with an Intel i7-13700KF and an NVIDIA GPU.
 
-The relinker CLI uses only the C++20 standard library.
+## Download
 
-```sh
-cmake --preset linux-release          # or windows-release in an MSYS2 UCRT64 shell
-cmake --build build/linux-release --parallel
-ctest --test-dir build/linux-release --output-on-failure
+Get the latest build from [Releases](https://github.com/mlgprorektm8/RyGT/releases). A release
+contains the runtime libraries, the renderer, the converter, a launcher and the GT Sport settings.
+It contains **no game files**: you need your own decrypted dump of GT Sport CUSA03220 with update
+1.69, and the system modules and fonts from your own PS4 firmware.
+
+Setup steps are in [docs/gt-sport/README.md](docs/gt-sport/README.md).
+
+## How it fits together
+
+```
+your dump: eboot.bin (1.69) + sce_module
+        |
+        |  unwrap the SELF, then convert with ryty.exe --windows --ps4
+        v
+GTSport.exe + app0\sce_module\*.guest.prx
+        |
+        |  loads at run time
+        v
+libs\  RyGT runtime libraries (kernel, libc, save data, audio, input, ...)
+       + shadGT renderer (libSceVideoOut.prx: Gnm driver, PM4 processing, Vulkan)
 ```
 
-Qt6 is optional and enables the GUI; without it the build skips the GUI
-gracefully (the `linux-release-cli` preset builds and tests exactly that
-configuration). Full dependency and toolchain notes, including the Windows
-MinGW requirement for the runtime libraries, are in
-[docs/user/BUILDING.md](docs/user/BUILDING.md).
+## What this repository contains
 
-On Intel hosts, pass `--to-intel` to the relinker to lower supported
-AMD-only instructions in the executable and bundled `sce_module`/`sce_modules`
-PRX files. Unsupported instructions or stub jumps outside the x86-64
-relative branch range produce an error.
+- **Converter** ([core/relinker](core/relinker)): turns the PS4 executable and its modules into
+  Windows binaries. RyGT adds fixes for GT Sport's executable and modules.
+- **Runtime libraries** ([core/libs/prx](core/libs/prx)): the PS4 system libraries the game links
+  against. RyGT's changes for GT Sport include:
+  - kernel: an event queue bridge for the renderer, mapping and protection change notices so the
+    renderer's memory tracking stays correct, `MAP_FIXED` replacing mappings, direct memory and
+    semaphore fixes;
+  - libc: C++ exceptions through the SEH runtime, guest allocation fixes, crash reports with
+    debugging aids;
+  - save data, AppContent, audio output and network control fixes, including holding the first
+    save data mount until the boot screen is drawn (GT Sport's boot script otherwise crashes).
+- **GT Sport guide** ([docs/gt-sport](docs/gt-sport)): setup from your own dump.
 
-## GUI
+The renderer lives in [shadGT, branch `ryty-gpu`](https://github.com/mlgprorektm8/shadGT/tree/ryty-gpu)
+(`ryty_gpu/`). It builds shadGT's video output, Gnm driver and Vulkan renderer as
+`libSceVideoOut.prx`, plus shadGT's audio, NP and other libraries for RyGT. It carries the GT
+Sport rendering fixes and the performance work (Vulkan calls on their own thread, cheaper buffer
+and image tracking).
 
-`ryty-gui` wraps the CLI: pick input/output, choose the target system, set
-the porting options, watch the colored log and optionally emit the JSON
-report. It launches the `ryty` binary from its own directory. Downloads from
-CI ship the GUI with every Qt6 file it needs. 
+## Building
 
-## Continuous integration
+- **Runtime libraries:** the Windows MinGW build in an MSYS2 shell (link-time optimization off).
+  See [docs/user/BUILDING.md](docs/user/BUILDING.md).
+- **Converter:** the `ryty` target in [core/relinker](core/relinker).
+- **Renderer:** in shadGT's `ryty-gpu` branch,
+  `cmake --preset x64-Clang-Release -DSHADGT_RYTY_GPU=ON`, then build the `ryty_gpu` target.
 
-A single workflow (`.github/workflows/CI.yml`) builds and tests Linux and
-Windows, packages the GUI with its runtime, and attaches both zips to GitHub
-releases for `v*` tags. Details: [docs/dev/CI.md](docs/dev/CI.md).
+## Branches
+
+- `main`: stable builds; releases come from here.
+- `development`: ongoing work. Changes reach `main` once they are tested.
 
 ## Documentation
 
-* [Documentation index](docs/README.md)
-* [Building](docs/user/BUILDING.md) and [usage](docs/user/USAGE.md)
-* [Porting pipeline](docs/dev/PORTING_PIPELINE.md) and
-  [instruction lowering](docs/dev/INSTRUCTION_LOWERING.md)
-* [Conventions](docs/dev/CONVENTIONS.md) and
-  [technical debt](docs/dev/TechnicalDebt.md)
-* [Contributing](CONTRIBUTING.md), [security policy](SECURITY.md),
-  [code of conduct](CODE_OF_CONDUCT.md), [changelog](CHANGELOG.md)
+- [GT Sport setup](docs/gt-sport/README.md)
+- Ryty's general documentation: [index](docs/README.md), [building](docs/user/BUILDING.md),
+  [usage](docs/user/USAGE.md), [input mapping](docs/user/INPUT_MAPPING.md),
+  [porting pipeline](docs/dev/PORTING_PIPELINE.md)
 
-## Compatibility
+## Credits
 
-See the [game compatibility list](docs/user/COMPATIBILITY.md) for tested
-games and known issues.
-
-## Input mapping
-
-SDL-mapped game controllers are supported, including analog sticks and
-triggers. Keyboard and mouse controls can be configured with a
-`ryty-input.ini` file. See [input mapping](docs/user/INPUT_MAPPING.md) for
-the supported devices and configuration format.
+- [Ryty](https://github.com/aarvsn/Ryty) by aarvsn, itself a fork of
+  [AnyPS5](https://github.com/boykopovar/AnyPS5) by Andrii Semkiv (boykopovar) and its
+  contributors: the converter, the system library implementations and the test infrastructure.
+- [shadPS4](https://github.com/shadps4-emu/shadPS4) and its contributors, through shadGT: the
+  renderer, shader recompiler and HLE libraries.
+- See [AUTHORS.md](AUTHORS.md).
 
 ## Disclaimer
 
-This project is intended for interoperability, research, preservation, and
-compatibility purposes. It does not include, distribute, or require
-copyrighted software, firmware, cryptographic keys, or proprietary libraries.
-Users are responsible for ensuring that any binaries used with this project
-are obtained and used in accordance with applicable laws and their respective
-license terms.
+This project is for interoperability, research and preservation. It does not include or
+distribute copyrighted games, firmware, keys or proprietary libraries. Use your own legally
+obtained copy of the game and your own console's firmware files, in line with the laws where
+you live.
 
 ## License
 
-This project is licensed under the GNU General Public License version 2 only.
-
-## Acknowledgments
-
-Ryty builds on AnyPS5 by Andrii Semkiv (boykopovar) and its contributors:
-the relinker architecture, the PRX system library implementations, the shader
-recompiler and the test infrastructure originate from that project.
+GNU General Public License version 2 only, as Ryty. The renderer (shadGT) is also GPL-2.0.
