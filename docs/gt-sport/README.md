@@ -16,15 +16,25 @@ program, together with shadGT's Vulkan renderer.
 - Converter: `core/relinker` gives `ryty.exe`.
 - Renderer: in shadGT, `cmake --preset x64-Clang-Release -DSHADGT_RYTY_GPU=ON`, target `ryty_gpu`.
 
-## Setup from your own dump
+## Setup with the loader
+
+Unzip a release on the same drive as your game dump, run `RyGT.exe`, pick the game folder, the
+1.69 update folder, a folder with your firmware's system modules and one with its fonts, then
+press **Set up** and **Play**. The loader's source is in [loader](../../loader) (build it with
+`loader/build.cmd`).
+
+## Setup by hand
+
 
 No game files, converted executables, PS4 system modules or fonts are distributed; you need your
 own decrypted dump of CUSA03220 with update 1.69 and your own firmware files.
 
-1. Unwrap the 1.69 `eboot.bin` (a SELF; its segments are not encrypted) into `eboot.elf`.
-2. Next to `eboot.elf`, make a folder `sce_module` with the game's `libc.prx`, `libSceFios2.prx`
-   and `logiWheel.prx`, and from your firmware `libSceFont.prx`, `libSceFontFt.prx`,
-   `libSceFreeTypeOt.prx`, `libSceJson2.prx`, `libSceNgs2.prx` and `libSceSecure.prx`.
+1. Unwrap the 1.69 `eboot.bin` (a SELF; its segments are not encrypted) into `eboot.elf`, and
+   rewrite its PT_SCE_RELRO segment (type 0x61000010) as a read-write PT_LOAD. Do the same for
+   each module in step 2.
+2. Next to `eboot.elf`, make a folder `sce_module` with the game's `libc.prx`, `libSceFios2.prx`,
+   `libSceSecure.prx` and `logiWheel.prx`, and from your firmware `libSceFont.prx`, `libSceFontFt.prx`,
+   `libSceFreeTypeOt.prx`, `libSceJson2.prx` and `libSceNgs2.prx`.
 3. Convert:
    `ryty.exe --windows --ps4 --skip-syscall-check --registry --report port-report.json eboot.elf GTSport.exe`
 4. Next to `GTSport.exe`, put the release's `libs` folder, MinGW DLLs, `Play-GTSport.cmd` and

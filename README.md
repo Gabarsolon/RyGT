@@ -36,7 +36,9 @@ contains the runtime libraries, the renderer, the converter, a launcher and the 
 It contains **no game files**: you need your own decrypted dump of GT Sport CUSA03220 with update
 1.69, and the system modules and fonts from your own PS4 firmware.
 
-Setup steps are in [docs/gt-sport/README.md](docs/gt-sport/README.md).
+Unzip it on the same drive as your dump and run `RyGT.exe`: pick your game, update, firmware
+module and font folders, press **Set up**, then **Play**. The loader's source is in
+[loader](loader). Manual setup steps are in [docs/gt-sport/README.md](docs/gt-sport/README.md).
 
 ## How it fits together
 
@@ -66,6 +68,8 @@ libs\  RyGT runtime libraries (kernel, libc, save data, audio, input, ...)
     debugging aids;
   - save data, AppContent, audio output and network control fixes, including holding the first
     save data mount until the boot screen is drawn (GT Sport's boot script otherwise crashes).
+- **Loader** ([loader](loader)): `RyGT.exe`, which converts the game from your own dump and
+  starts it.
 - **GT Sport guide** ([docs/gt-sport](docs/gt-sport)): setup from your own dump.
 
 The renderer lives in [shadGT, branch `ryty-gpu`](https://github.com/mlgprorektm8/shadGT/tree/ryty-gpu)
