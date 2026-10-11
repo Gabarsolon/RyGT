@@ -132,6 +132,7 @@ namespace RyGT
         readonly Settings settings;
         readonly TextBox game, update, modules, fonts, log;
         readonly Button setup, play;
+        readonly CheckBox splash;
         readonly Label status;
         volatile bool busy;
 
@@ -164,6 +165,19 @@ namespace RyGT
             modules = AddRow(table, 3, "System modules", settings.Modules);
             fonts = AddRow(table, 4, "Fonts", settings.Fonts);
 
+            splash = new CheckBox
+            {
+                Text = "Show the game's splash screen while it starts", AutoSize = true,
+                Checked = ReadSplashSetting(), Margin = new Padding(0, 8, 0, 0)
+            };
+            splash.CheckedChanged += delegate
+            {
+                try { WriteSplashSetting(splash.Checked); }
+                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
+            };
+            table.Controls.Add(splash, 0, 5);
+            table.SetColumnSpan(splash, 3);
+
             var buttons = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0, 8, 0, 8) };
             setup = new Button { Text = "Set up", AutoSize = true };
             play = new Button { Text = "Play", AutoSize = true };
@@ -172,18 +186,19 @@ namespace RyGT
             play.Click += delegate { Play(); };
             open.Click += delegate { Process.Start("explorer.exe", "\"" + root + "\""); };
             buttons.Controls.AddRange(new Control[] { setup, play, open });
-            table.Controls.Add(buttons, 0, 5);
+            table.Controls.Add(buttons, 0, 6);
             table.SetColumnSpan(buttons, 3);
 
             status = new Label { AutoSize = true, Margin = new Padding(0, 0, 0, 4) };
-            table.Controls.Add(status, 0, 6);
+            table.Controls.Add(status, 0, 7);
             table.SetColumnSpan(status, 3);
 
             log = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, Font = new Font("Consolas", 9f) };
-            table.Controls.Add(log, 0, 7);
+            table.Controls.Add(log, 0, 8);
             table.SetColumnSpan(log, 3);
+            table.RowCount = 9;
             table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            for (int i = 1; i < 7; i++) table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            for (int i = 1; i < 8; i++) table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             table.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             RefreshState();
@@ -207,6 +222,40 @@ namespace RyGT
         }
 
         string Exe { get { return Path.Combine(root, "GTSport.exe"); } }
+
+        string ConfigPath { get { return Path.Combine(root, "user", "custom_configs", "CUSA03220.json"); } }
+
+        /// shadGT's Show Splash setting (General.show_splash) in the GT Sport config.
+        bool ReadSplashSetting()
+        {
+            try
+            {
+                var config = LoadConfig();
+                object general, value;
+                var section = config.TryGetValue("General", out general) ? general as Dictionary<string, object> : null;
+                return section != null && section.TryGetValue("show_splash", out value) && value is bool && (bool)value;
+            }
+            catch { return false; }
+        }
+
+        void WriteSplashSetting(bool show)
+        {
+            var config = LoadConfig();
+            object general;
+            var section = config.TryGetValue("General", out general) ? general as Dictionary<string, object> : null;
+            if (section == null) { section = new Dictionary<string, object>(); config["General"] = section; }
+            section["show_splash"] = show;
+            Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath));
+            File.WriteAllText(ConfigPath, new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(config),
+                              new UTF8Encoding(false));
+        }
+
+        Dictionary<string, object> LoadConfig()
+        {
+            if (!File.Exists(ConfigPath)) return new Dictionary<string, object>();
+            var parsed = new System.Web.Script.Serialization.JavaScriptSerializer().DeserializeObject(File.ReadAllText(ConfigPath));
+            return parsed as Dictionary<string, object> ?? new Dictionary<string, object>();
+        }
 
         void RefreshState()
         {

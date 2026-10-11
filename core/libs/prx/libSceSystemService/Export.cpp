@@ -2,6 +2,9 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdlib>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include "prx/libc/include/Shutdown.hpp"
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
@@ -60,6 +63,17 @@ int APS5_VABI sceSystemServiceGetStatus(SystemServiceStatus* status) {
 }
 
 int APS5_VABI sceSystemServiceHideSplashScreen(void) {
+#ifdef _WIN32
+    // RyGT: the renderer (shadGT's libSceVideoOut.prx) shows the game's splash screen until the
+    // game hides it, as the system does on the console.
+    using HideFunction = void (*)();
+    if (const HMODULE renderer = GetModuleHandleA("libSceVideoOut.prx")) {
+        if (const auto hide = reinterpret_cast<HideFunction>(
+                reinterpret_cast<void*>(GetProcAddress(renderer, "RytyGpuHideSplashScreen")))) {
+            hide();
+        }
+    }
+#endif
  return SYSTEM_SERVICE_OK;
 }
 
