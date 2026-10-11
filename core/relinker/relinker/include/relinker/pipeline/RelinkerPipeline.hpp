@@ -30,6 +30,7 @@ private:
 
     static constexpr std::uint32_t PT_LOAD = 1;
     static constexpr std::uint32_t PT_DYNAMIC = 2;
+    static constexpr std::uint32_t PT_SCE_DYNLIBDATA = 0x61000000;
     static constexpr std::uint32_t PF_X = 0x1;
 
     static constexpr std::int64_t DT_NEEDED = 0x00000001;

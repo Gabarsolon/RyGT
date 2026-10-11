@@ -244,6 +244,15 @@ void GuestAllocationsRequireUnpinned_nid_postfix(void* mutation, const void* poi
     }
 }
 
+bool GuestAllocationsOverlaps_nid_postfix(void*, const void* pointer, std::size_t bytes) {
+    const auto address = reinterpret_cast<std::uintptr_t>(pointer);
+    for (const auto& [base, range] : registry().ranges) {
+        if (base >= address + bytes) break;
+        if (base + range->bytes > address) return true;
+    }
+    return false;
+}
+
 void GuestAllocationsRequireAvailable_nid_postfix(void*, const void* pointer, std::size_t bytes) {
     const auto address = reinterpret_cast<std::uintptr_t>(pointer);
     require(address != 0 && bytes != 0 && bytes <= std::numeric_limits<std::uint64_t>::max() - address, "invalid fixed guest mapping");

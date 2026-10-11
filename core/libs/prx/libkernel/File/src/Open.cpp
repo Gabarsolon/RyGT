@@ -12,6 +12,10 @@
 #include <string>
 
 #ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #include <fcntl.h>
 #include <io.h>
 #include <sys/stat.h>
@@ -87,6 +91,22 @@ static int MapFlags(int sceFlags) {
 }
 #endif
 
+void PrepareGuestWrite(void* buffer, std::size_t bytes) {
+#ifdef _WIN32
+    using RangeFunction = void (*)(std::uint64_t, std::uint64_t);
+    static RangeFunction invalidate = nullptr;
+    if (invalidate == nullptr) {
+        if (HMODULE renderer = GetModuleHandleA("libSceVideoOut.prx")) {
+            invalidate = reinterpret_cast<RangeFunction>(reinterpret_cast<void*>(GetProcAddress(renderer, "RytyGpuInvalidateMemory")));
+        }
+    }
+    if (invalidate != nullptr && buffer != nullptr && bytes != 0) invalidate(reinterpret_cast<std::uint64_t>(buffer), bytes);
+#else
+    (void)buffer;
+    (void)bytes;
+#endif
+}
+
 static int SceErrorFromErrno(int error) {
     constexpr int GuestEio = 5;
     const int guest = error > 0 && error <= 34 ? error : GuestEio;
@@ -125,6 +145,7 @@ std::int64_t APS5_VABI sceKernelRead(int d, void* buf, std::size_t nbytes) {
     if (buf == nullptr) {
         throw std::invalid_argument(std::string(__func__) + ": buf is null");
     }
+    PrepareGuestWrite(buf, nbytes);
     auto n = NativeRead(d, buf, nbytes);
     if (n < 0) {
         throw std::runtime_error(std::string(__func__) + ": read failed, fd=" + std::to_string(d) + ", errno=" + std::to_string(errno));

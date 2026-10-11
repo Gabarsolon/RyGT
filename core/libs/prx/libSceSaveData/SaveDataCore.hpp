@@ -84,6 +84,8 @@ constexpr std::uint32_t SD_MEMORY_MAX_MOUNTED = 4;
 constexpr std::size_t SD_MEMORY_MAX_SIZE = 32u * 1024u * 1024u;
 constexpr std::uint32_t SD_MEMORY_SET_PARAM = 1u;
 constexpr std::uint32_t SD_MEMORY_DOUBLE_BUFFER = 2u;
+// PS4 titles also pass UNLOCK_LIMITATIONS (GT Sport sets it with a 32 MiB slot); it needs no handling here.
+constexpr std::uint32_t SD_MEMORY_UNLOCK_LIMITATIONS = 4u;
 constexpr std::uint32_t SD_MEMORY_MAX_DATA_NUM = 5;
 
 constexpr std::uint32_t SD_PARAM_WHOLE = 0;
@@ -649,8 +651,11 @@ bool dir_name_matches(const char* str, const char* pattern) {
 int dir_name_search_internal(const SaveDataDirNameSearchCond* cond,
                              SaveDataDirNameSearchResult* result) {
     State& st = state();
+    // dir_names, dir_names_num, params and infos are the caller's buffers; only the counts are
+    // outputs.
     if (result != nullptr) {
-        std::memset(result, 0, sizeof(*result));
+        result->hit_num = 0;
+        result->set_num = 0;
     }
     if (!is_ready()) {
         return SD_ERROR_NOT_INITIALIZED;
@@ -706,10 +711,26 @@ int dir_name_search_internal(const SaveDataDirNameSearchCond* cond,
             load_save_param(save_directory(save_alias_locked(st, found[i])), &result->params[i]);
         }
         if (result->infos != nullptr) {
-            std::memset(&result->infos[i], 0, sizeof(result->infos[i]));
-            std::uint64_t blocks = 0;
-            if (read_u64(save_blocks_path(save_directory(save_alias_locked(st, found[i]))), &blocks) == SD_OK) {
-                std::memcpy(&result->infos[i], &blocks, sizeof(blocks));
+            // SceSaveDataSearchInfo on the PS4: blocks, free blocks, 32 reserved bytes.
+            struct SearchInfo {
+                std::uint64_t blocks;
+                std::uint64_t free_blocks;
+                std::uint8_t reserved[32];
+            };
+            auto* info = reinterpret_cast<SearchInfo*>(result->infos) + i;
+            std::memset(info, 0, sizeof(*info));
+            const auto directory = save_directory(save_alias_locked(st, found[i]));
+            if (read_u64(save_blocks_path(directory), &info->blocks) == SD_OK) {
+                constexpr std::uint64_t block_size = 32768;
+                std::uint64_t used = 0;
+                std::error_code walk_error;
+                for (const auto& entry : std::filesystem::recursive_directory_iterator(directory, walk_error)) {
+                    std::error_code size_error;
+                    if (entry.is_regular_file(size_error) && !size_error) {
+                        used += (entry.file_size(size_error) + block_size - 1) / block_size;
+                    }
+                }
+                info->free_blocks = info->blocks > used ? info->blocks - used : 0;
             }
         }
     }
@@ -904,7 +925,7 @@ int setup_memory_internal(const SaveDataMemorySetup2* setup, SaveDataMemorySetup
                           KernelEventFlag flag) {
     State& st = state();
     if (setup == nullptr || setup->slot_id >= SD_MEMORY_SLOTS || setup->memory_size == 0 ||
-        setup->memory_size > SD_MEMORY_MAX_SIZE || (setup->option & ~(SD_MEMORY_SET_PARAM | SD_MEMORY_DOUBLE_BUFFER)) != 0 ||
+        setup->memory_size > SD_MEMORY_MAX_SIZE || (setup->option & ~(SD_MEMORY_SET_PARAM | SD_MEMORY_DOUBLE_BUFFER | SD_MEMORY_UNLOCK_LIMITATIONS)) != 0 ||
         (setup->init_param != nullptr && setup->option != 0 && (setup->option & SD_MEMORY_SET_PARAM) == 0)) {
         return SD_ERROR_PARAMETER;
     }
@@ -1329,6 +1350,25 @@ int delete_local_storage_app_status_internal(const SceSaveDataDirName* dir_name,
     std::error_code error;
     std::filesystem::remove(app_status_path(dir_name->data), error);
     return error ? SD_ERROR_INTERNAL : SD_OK;
+}
+
+int save_icon_internal(const SaveDataMountPoint* mount_point, const SaveDataIcon* icon) {
+    State& st = state();
+    if (!is_ready()) {
+        return SD_ERROR_NOT_INITIALIZED;
+    }
+    if (mount_point == nullptr || icon == nullptr || icon->buf == nullptr ||
+        !bounded_string_ok(mount_point->data, sizeof(mount_point->data))) {
+        return SD_ERROR_PARAMETER;
+    }
+    std::lock_guard<std::mutex> lock(st.mutex);
+    const int index = slot_of_mount_point_locked(st, mount_point->data);
+    if (index == -1) {
+        return SD_ERROR_NOT_MOUNTED;
+    }
+    const std::size_t size = icon->data_size != 0 ? icon->data_size : icon->buf_size;
+    const auto path = save_metadata_directory(st.slots[static_cast<std::size_t>(index)].directory) / "icon0.png";
+    return write_blob(path, icon->buf, size) ? SD_OK : SD_ERROR_INTERNAL;
 }
 
 int check_internal() {

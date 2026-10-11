@@ -1,7 +1,11 @@
 #ifdef _WIN32
 #include <windows.h>
 #include "prx/libc/include/GuestArena.hpp"
+#include <algorithm>
 #include <atomic>
+#include <exception>
+#include <typeinfo>
+#include <cstring>
 #include <chrono>
 #include <csignal>
 #include <cstdint>
@@ -138,6 +142,193 @@ bool HandleWatch(EXCEPTION_POINTERS* info) {
     return true;
 }
 
+// Debug aid: APS5_BREAK_DUMP=<guest ELF vaddr> reports the registers, and the memory they and the
+// first words of rbx's object point at, each time that instruction runs (first APS5_BREAK_LIMIT
+// times, default 4). With APS5_BREAK_MATCH set, only hits whose text at [rbx+0x28] contains it are
+// reported; APS5_BREAK_FILE=<bytes> also writes that much memory from rsi to break_<n>.bin.
+std::uintptr_t g_breakAddress = 0;
+std::uint8_t g_breakOriginal = 0;
+std::atomic<int> g_breakCount{0};
+int g_breakLimit = 4;
+thread_local bool t_breakStepping = false;
+std::mutex g_captureMutex;
+std::uint64_t g_returnAddress = 0;
+std::uint8_t g_returnOriginal = 0;
+DWORD g_returnThread = 0;
+thread_local std::uint64_t t_captureDestination = 0;
+thread_local std::uint64_t t_captureSize = 0;
+
+void WriteCodeByte(std::uintptr_t address, std::uint8_t value) {
+    DWORD old;
+    VirtualProtect(reinterpret_cast<void*>(address), 1, PAGE_EXECUTE_READWRITE, &old);
+    *reinterpret_cast<volatile std::uint8_t*>(address) = value;
+    VirtualProtect(reinterpret_cast<void*>(address), 1, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), reinterpret_cast<void*>(address), 1);
+}
+
+void ReportWords(const char* name, std::uint64_t value, int count) {
+    if (value < 0x10000 || !IsReadable(value) || !IsReadable(value + count * 8 - 1)) return;
+    const auto* words = reinterpret_cast<const std::uint64_t*>(value);
+    for (int i = 0; i < count; i += 4) {
+        Report("[break]   %s+0x%02x: %016llx %016llx %016llx %016llx\n", name, i * 8, words[i], words[i + 1], words[i + 2], words[i + 3]);
+    }
+}
+
+bool HandleBreak(EXCEPTION_POINTERS* info) {
+    if (g_breakAddress == 0) return false;
+    const auto* record = info->ExceptionRecord;
+    auto* context = info->ContextRecord;
+    if (record->ExceptionCode == EXCEPTION_SINGLE_STEP && t_breakStepping) {
+        t_breakStepping = false;
+        if (g_breakCount.load() < g_breakLimit) WriteCodeByte(g_breakAddress, 0xCC);
+        return true;
+    }
+    if (record->ExceptionCode == EXCEPTION_BREAKPOINT && g_returnAddress != 0 && reinterpret_cast<std::uintptr_t>(record->ExceptionAddress) == g_returnAddress) {
+        std::lock_guard lock(g_captureMutex);
+        if (GetCurrentThreadId() == g_returnThread && t_captureSize != 0 && IsReadable(t_captureDestination) && IsReadable(t_captureDestination + t_captureSize - 1)) {
+            if (FILE* out = std::fopen("capture.bin", "ab")) {
+                std::fwrite(reinterpret_cast<const void*>(t_captureDestination), 1, t_captureSize, out);
+                std::fclose(out);
+            }
+        }
+        WriteCodeByte(g_returnAddress, g_returnOriginal);
+        context->Rip = g_returnAddress;
+        g_returnAddress = 0;
+        return true;
+    }
+    if (record->ExceptionCode != EXCEPTION_BREAKPOINT || reinterpret_cast<std::uintptr_t>(record->ExceptionAddress) != g_breakAddress) return false;
+    // APS5_BREAK_CAPTURE=<text>: the breakpoint is a read(stream, destination, size) function whose
+    // stream names its file at [stream+0x28]; for streams whose name contains the text, every read
+    // is appended to capture.bin once the call returns.
+    if (const char* capture = std::getenv("APS5_BREAK_CAPTURE")) {
+        const auto name = context->Rdi >= 0x10000 && IsReadable(context->Rdi + 0x28) ? *reinterpret_cast<const std::uint64_t*>(context->Rdi + 0x28) : 0;
+        const bool named = name >= 0x10000 && IsReadable(name) && IsReadable(name + 0x7f);
+        if (named && std::strstr(reinterpret_cast<const char*>(name), capture) != nullptr && IsReadable(context->Rsp)) {
+            std::lock_guard lock(g_captureMutex);
+            if (g_returnAddress == 0) {
+                t_captureDestination = context->Rsi;
+                t_captureSize = context->Rdx & 0xffffffff;
+                g_returnAddress = *reinterpret_cast<const std::uint64_t*>(context->Rsp);
+                g_returnOriginal = *reinterpret_cast<const std::uint8_t*>(g_returnAddress);
+                g_returnThread = GetCurrentThreadId();
+                WriteCodeByte(g_returnAddress, 0xCC);
+            }
+        }
+        WriteCodeByte(g_breakAddress, g_breakOriginal);
+        context->Rip = g_breakAddress;
+        context->EFlags |= 0x100;
+        t_breakStepping = true;
+        return true;
+    }
+    // APS5_BREAK_LOG: the breakpoint is a printf-style logging function taking the source file in
+    // r8, the line in r9 and the format as its first stack argument; print those.
+    if (std::getenv("APS5_BREAK_LOG") != nullptr) {
+        g_breakCount.fetch_add(1);
+        const auto format = IsReadable(context->Rsp + 8) ? *reinterpret_cast<const std::uint64_t*>(context->Rsp + 8) : 0;
+        const auto source = context->R8;
+        // Expand the integer and string conversions from the stack arguments that follow the format.
+        char text[1024];
+        std::size_t used = 0;
+        if (format >= 0x10000 && IsReadable(format) && IsReadable(format + 0xff)) {
+            const char* f = reinterpret_cast<const char*>(format);
+            std::uint64_t slot = context->Rsp + 16;
+            for (; *f != 0 && used + 1 < sizeof(text); ++f) {
+                if (*f != '%' || f[1] == 0) { text[used++] = *f; continue; }
+                const char* spec = f + 1;
+                while (*spec != 0 && std::strchr("-+ #0123456789.lhzjt", *spec) != nullptr) ++spec;
+                if (*spec == '%') { text[used++] = '%'; f = spec; continue; }
+                const auto value = IsReadable(slot) ? *reinterpret_cast<const std::uint64_t*>(slot) : 0;
+                if (*spec != 'f' && *spec != 'g' && *spec != 'e') slot += 8;
+                int wrote = 0;
+                if (*spec == 's') {
+                    const bool ok = value >= 0x10000 && IsReadable(value) && IsReadable(value + 0x3f);
+                    wrote = std::snprintf(text + used, sizeof(text) - used, "%.120s", ok ? reinterpret_cast<const char*>(value) : "(?)");
+                } else if (*spec == 'f' || *spec == 'g' || *spec == 'e') {
+                    wrote = std::snprintf(text + used, sizeof(text) - used, "<float>");
+                } else {
+                    wrote = std::snprintf(text + used, sizeof(text) - used, "%llx", static_cast<unsigned long long>(value));
+                }
+                if (wrote > 0) used = std::min(sizeof(text) - 1, used + static_cast<std::size_t>(wrote));
+                f = spec;
+            }
+        }
+        text[used] = 0;
+        static const ULONGLONG start = GetTickCount64();
+        Report("[log %llu] %d %.80s:%d %s\n", static_cast<unsigned long long>(GetTickCount64() - start), static_cast<int>(context->Rsi & 0xff),
+               source >= 0x10000 && IsReadable(source) && IsReadable(source + 0x7f) ? reinterpret_cast<const char*>(source) : "?",
+               static_cast<int>(context->R9 & 0xffffffff), text);
+        WriteCodeByte(g_breakAddress, g_breakOriginal);
+        context->Rip = g_breakAddress;
+        context->EFlags |= 0x100;
+        t_breakStepping = true;
+        return true;
+    }
+    const char* match = std::getenv("APS5_BREAK_MATCH");
+    const auto label = context->Rbx >= 0x10000 && IsReadable(context->Rbx + 0x28) ? *reinterpret_cast<const std::uint64_t*>(context->Rbx + 0x28) : 0;
+    const bool labelled = label >= 0x10000 && IsReadable(label) && IsReadable(label + 0xff);
+    if (match != nullptr && !(labelled && std::strstr(reinterpret_cast<const char*>(label), match) != nullptr)) {
+        WriteCodeByte(g_breakAddress, g_breakOriginal);
+        context->Rip = g_breakAddress;
+        context->EFlags |= 0x100;
+        t_breakStepping = true;
+        return true;
+    }
+    const int hit = g_breakCount.fetch_add(1);
+    if (std::getenv("APS5_BREAK_QUIET") != nullptr) {
+        Report("[break] hit %d rbx %llx rsi %llx label %.120s\n", hit, context->Rbx, context->Rsi, labelled ? reinterpret_cast<const char*>(label) : "?");
+        WriteCodeByte(g_breakAddress, g_breakOriginal);
+        context->Rip = g_breakAddress;
+        context->EFlags |= 0x100;
+        t_breakStepping = true;
+        return true;
+    }
+    Report("[break] hit %d on thread %lu: rax %llx rbx %llx rcx %llx rdx %llx rsi %llx rdi %llx r12 %llx r13 %llx r14 %llx r15 %llx rbp %llx rsp %llx\n", hit, GetCurrentThreadId(), context->Rax, context->Rbx, context->Rcx, context->Rdx, context->Rsi, context->Rdi, context->R12, context->R13, context->R14, context->R15, context->Rbp, context->Rsp);
+    const std::pair<const char*, std::uint64_t> registers[] = {{"rax", context->Rax}, {"rbx", context->Rbx}, {"rcx", context->Rcx}, {"rdx", context->Rdx}, {"rsi", context->Rsi}, {"rdi", context->Rdi}, {"r12", context->R12}, {"r14", context->R14}, {"r15", context->R15}};
+    for (const auto& [name, value] : registers) ReportWords(name, value, 16);
+    ReportWords("rbx-object", context->Rbx, 64);
+    if (context->Rbx >= 0x10000 && IsReadable(context->Rbx) && IsReadable(context->Rbx + 0x1ff)) {
+        const auto* words = reinterpret_cast<const std::uint64_t*>(context->Rbx);
+        for (int i = 0; i < 64; ++i) {
+            char name[32];
+            std::snprintf(name, sizeof(name), "[rbx+0x%02x]", i * 8);
+            ReportWords(name, words[i], 8);
+        }
+        // APS5_BREAK_FILE=<bytes>: write that many bytes from rsi (fewer if memory ends) to
+        // break_<n>.bin, but only when the text at [rbx+0x28] contains APS5_BREAK_MATCH.
+        if (const char* file = std::getenv("APS5_BREAK_FILE")) {
+            const auto name = label;
+            const bool named = labelled;
+            {
+                std::uint64_t size = 0;
+                const auto limit = std::strtoull(file, nullptr, 0);
+                while (size < limit && IsReadable(context->Rsi + size)) size += 0x100;
+                char path[64];
+                std::snprintf(path, sizeof(path), "break_%d.bin", hit);
+                if (FILE* out = std::fopen(path, "wb")) {
+                    std::fwrite(reinterpret_cast<const void*>(context->Rsi), 1, size, out);
+                    std::fclose(out);
+                    Report("[break]   wrote %llu bytes to %s (%s)\n", static_cast<unsigned long long>(size), path, named ? reinterpret_cast<const char*>(name) : "?");
+                }
+            }
+        }
+    }
+    WriteCodeByte(g_breakAddress, g_breakOriginal);
+    context->Rip = g_breakAddress;
+    context->EFlags |= 0x100;
+    t_breakStepping = true;
+    return true;
+}
+
+void InstallBreak() {
+    const char* value = std::getenv("APS5_BREAK_DUMP");
+    if (!value) return;
+    if (const char* limit = std::getenv("APS5_BREAK_LIMIT")) g_breakLimit = std::atoi(limit);
+    g_breakAddress = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr)) + 0x10000 + std::strtoull(value, nullptr, 0);
+    g_breakOriginal = *reinterpret_cast<const std::uint8_t*>(g_breakAddress);
+    WriteCodeByte(g_breakAddress, 0xCC);
+    Report("[break] breakpoint at 0x%llx\n", static_cast<unsigned long long>(g_breakAddress));
+}
+
 void InstallWatch() {
     // APS5_WATCH_ADDR=<absolute hex address> watches guest data that is mapped later: the page is
     // protected once it has been committed.
@@ -234,10 +425,90 @@ bool HandleSse4a(EXCEPTION_POINTERS* info) {
     return true;
 }
 
+// A renderer that write-protects guest pages it caches on the GPU (the shadGT-based
+// libSceVideoOut.prx) gets each access fault first: it owns those pages, drops its copy and
+// unprotects them. Ryty's own shared-memory write handling would otherwise unprotect them unseen.
+// 1: handled, retry; 2: an expected fault in one of the renderer's guarded reads, which its own
+// structured handler takes; 0: not the renderer's.
+int RendererHandlesFault(EXCEPTION_POINTERS* info) {
+    using FaultFunction = int (*)(void*);
+    static FaultFunction handler = nullptr;
+    if (handler == nullptr) {
+        if (HMODULE renderer = GetModuleHandleA("libSceVideoOut.prx")) {
+            handler = reinterpret_cast<FaultFunction>(reinterpret_cast<void*>(GetProcAddress(renderer, "RytyGpuHandleWriteFault")));
+        }
+    }
+    return handler != nullptr ? handler(info) : 0;
+}
+
+// APS5_TRACE_THROW=1 reports each C++ exception thrown by Ryty's (GCC-built) libraries as it is
+// raised: its type, its message when it is a standard exception, and the code addresses on the
+// stack. An exception that escapes into guest frames cannot be unwound (STATUS_BAD_FUNCTION_TABLE),
+// so this is the only trace of it.
+void TraceThrow(EXCEPTION_POINTERS* info) {
+    constexpr DWORD GccThrow = 0x20474343;
+    static const bool enabled = std::getenv("APS5_TRACE_THROW") != nullptr;
+    const auto* record = info->ExceptionRecord;
+    if (!enabled || record->ExceptionCode != GccThrow || record->NumberParameters < 1) return;
+    // libgcc raises it with the _Unwind_Exception (64 bytes under SEH) that directly precedes the
+    // thrown object; the object's vtable is preceded by its type_info.
+    const auto unwind = static_cast<std::uintptr_t>(record->ExceptionInformation[0]);
+    const auto object = unwind + 64;
+    char type[160] = "?";
+    char what[256] = "";
+    if (IsReadable(object) && IsReadable(object + 7)) {
+        const auto vtable = *reinterpret_cast<const std::uintptr_t*>(object);
+        if (vtable >= 0x10000 && IsReadable(vtable - 8) && IsReadable(vtable + 23)) {
+            const auto* typeInfo = *reinterpret_cast<const std::type_info* const*>(vtable - 8);
+            if (typeInfo != nullptr && IsReadable(reinterpret_cast<std::uintptr_t>(typeInfo) + 15)) {
+                std::snprintf(type, sizeof(type), "%s", typeInfo->name());
+                if (std::strstr(type, "St") == type || std::strstr(type, "error") != nullptr || std::strstr(type, "exception") != nullptr) {
+                    std::snprintf(what, sizeof(what), "%s", reinterpret_cast<const std::exception*>(object)->what());
+                }
+            }
+        }
+    }
+    Report("[throw] thread %lu %s: %s\n", GetCurrentThreadId(), type, what);
+    const auto* context = info->ContextRecord;
+    char line[MAX_PATH + 64];
+    int printed = 0;
+    for (std::uint64_t slot = context->Rsp; printed < 10 && slot < context->Rsp + 0x1000; slot += 8) {
+        if (!IsReadable(slot)) break;
+        const auto value = *reinterpret_cast<const std::uint64_t*>(slot);
+        if (!IsExecutable(value)) continue;
+        DescribeAddress(value, line, sizeof(line));
+        Report("[throw]   %s\n", line);
+        ++printed;
+    }
+}
+
 LONG WINAPI ReportCrash(EXCEPTION_POINTERS* info) {
     static std::atomic<bool> reported{false};
     const auto* fault = info->ExceptionRecord;
-    if (fault->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && fault->NumberParameters >= 2 && fault->ExceptionInformation[0] == 1 && GuestArena::GuestArenaHandleWrite_nid_postfix(fault->ExceptionInformation[1])) return EXCEPTION_CONTINUE_EXECUTION;
+    TraceThrow(info);
+    if (fault->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
+        const int renderer = RendererHandlesFault(info);
+        if (renderer == 1) return EXCEPTION_CONTINUE_EXECUTION;
+        if (renderer == 2) {
+            static std::atomic<unsigned> passed{0};
+            if (passed.fetch_add(1) < 20) {
+                std::fprintf(stderr, "[fault] passed to the renderer's guarded read: %p (rip %p)\n",
+                             reinterpret_cast<void*>(fault->ExceptionInformation[1]), fault->ExceptionAddress);
+            }
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
+    }
+    if (fault->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && fault->NumberParameters >= 2 && fault->ExceptionInformation[0] == 1 && GuestArena::GuestArenaHandleWrite_nid_postfix(fault->ExceptionInformation[1])) {
+        // This unprotects the whole 16 KB view, including pages the renderer still tracks, so
+        // it should only happen for writes the renderer has nothing to do with.
+        static std::atomic<unsigned> logged{0};
+        if (logged.fetch_add(1) < 50) {
+            std::fprintf(stderr, "[fault] Ryty resumed a write to %p the renderer did not handle (rip %p)\n",
+                         reinterpret_cast<void*>(fault->ExceptionInformation[1]), fault->ExceptionAddress);
+        }
+        return EXCEPTION_CONTINUE_EXECUTION;
+    }
+    if (HandleBreak(info)) return EXCEPTION_CONTINUE_EXECUTION;
     if (HandleWatch(info)) return EXCEPTION_CONTINUE_EXECUTION;
     if (HandleSse4a(info)) return EXCEPTION_CONTINUE_EXECUTION;
     const auto* record = info->ExceptionRecord;
@@ -279,6 +550,14 @@ LONG WINAPI ReportCrash(EXCEPTION_POINTERS* info) {
             if (value < 0x10000 || (value & 7) != 0 || !IsReadable(value) || !IsReadable(value + 0x38)) continue;
             const auto* words = reinterpret_cast<const std::uint64_t*>(value);
             Report("  [%s] %016llx %016llx %016llx %016llx %016llx %016llx %016llx %016llx\n", name, words[0], words[1], words[2], words[3], words[4], words[5], words[6], words[7]);
+        }
+    }
+    // APS5_CRASH_STRING=<ELF address> prints the text the title keeps there (a last error message,
+    // for instance), addressed like APS5_WATCH_WRITE.
+    if (const char* stringAddress = std::getenv("APS5_CRASH_STRING")) {
+        const auto address = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr)) + 0x10000 + std::strtoull(stringAddress, nullptr, 0);
+        if (IsReadable(address) && IsReadable(address + 0x7ff)) {
+            Report("  [string] %.2047s\n", reinterpret_cast<const char*>(address));
         }
     }
     Report("  frame pointer chain:\n");
@@ -330,6 +609,17 @@ LONG WINAPI ReportCrash(EXCEPTION_POINTERS* info) {
         }
     }
     std::fflush(stderr);
+    // Ending the process here skips DLL_PROCESS_DETACH: an exit through the normal path from a faulting
+    // thread can deadlock in the GPU driver's teardown (seen with NVIDIA Vulkan), leaving a process that
+    // holds the run folder's files for minutes. APS5_CRASH_SEARCH keeps the previous behaviour.
+    // APS5_CRASH_PAUSE=<seconds> keeps the faulting process alive that long so its memory can be
+    // inspected from outside.
+    if (const char* pause = std::getenv("APS5_CRASH_PAUSE")) {
+        Report("  pausing %s s for inspection (pid %lu)\n", pause, GetCurrentProcessId());
+        std::fflush(stderr);
+        Sleep(static_cast<DWORD>(std::strtoul(pause, nullptr, 10) * 1000));
+    }
+    if (std::getenv("APS5_CRASH_SEARCH") == nullptr) TerminateProcess(GetCurrentProcess(), record->ExceptionCode);
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
@@ -367,9 +657,28 @@ const bool g_crashReportInstalled = [] {
     g_sse4aEmulation = !IsEnvironmentSet("APS5_NO_SSE4A_EMULATION");
     g_sse4aTrace = IsEnvironmentSet("APS5_TRACE_SSE4A");
     AddVectoredExceptionHandler(1, ReportCrash);
+    // An exception every handler passed on (the renderer's guarded reads pass faults to their
+    // own structured handler): name it before the process ends without a report.
+    SetUnhandledExceptionFilter([](EXCEPTION_POINTERS* info) -> LONG {
+        const auto* record = info->ExceptionRecord;
+        HMODULE module = nullptr;
+        char name[MAX_PATH] = "?";
+        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               static_cast<LPCSTR>(record->ExceptionAddress), &module)) {
+            GetModuleFileNameA(module, name, sizeof(name));
+        }
+        std::fprintf(stderr, "FATAL (no handler took it): exception 0x%08lx at %p in %s+0x%llx, address %p, thread %lu\n",
+                     record->ExceptionCode, record->ExceptionAddress, name,
+                     static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(record->ExceptionAddress) - reinterpret_cast<std::uintptr_t>(module)),
+                     record->NumberParameters >= 2 ? reinterpret_cast<void*>(record->ExceptionInformation[1]) : nullptr,
+                     GetCurrentThreadId());
+        std::fflush(stderr);
+        return EXCEPTION_CONTINUE_SEARCH;
+    });
     std::signal(SIGABRT, AbortSignalHandler);
     _set_invalid_parameter_handler(InvalidParameterHandler);
     InstallWatch();
+    InstallBreak();
     return true;
 }();
 

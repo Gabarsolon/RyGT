@@ -66,6 +66,7 @@ static std::int64_t NativePositioned(int descriptor, void* buf, std::size_t nbyt
     overlapped.Offset = static_cast<DWORD>(offset);
     overlapped.OffsetHigh = static_cast<DWORD>(static_cast<std::uint64_t>(offset) >> 32u);
     DWORD done = 0;
+    if (!write) PrepareGuestWrite(buf, nbytes);
     const BOOL ok = write ? ::WriteFile(handle, buf, static_cast<DWORD>(nbytes), &done, &overlapped)
                           : ::ReadFile(handle, buf, static_cast<DWORD>(nbytes), &done, &overlapped);
     if (!ok) {

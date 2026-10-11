@@ -19,9 +19,11 @@ namespace {
 constexpr std::uintptr_t PreferredBase = 0x0000000200000000ull;
 constexpr std::uintptr_t SystemReservedStart = 0x00000007FFFFC000ull;
 constexpr std::uintptr_t SystemReservedEnd = 0x0000001000000000ull;
-constexpr std::size_t MaximumSize = 0x0000007000000000ull;
-constexpr std::size_t MinimumSize = 0x0000001000000000ull;
 constexpr std::uintptr_t MapAreaEnd = 0x000000FC00000000ull;
+// PS4 titles place fixed mappings anywhere below MapAreaEnd (GT Sport maps at 0xf3ffe00000), so try to
+// cover the whole guest map area first; the loop below falls back to smaller reservations.
+constexpr std::size_t MaximumSize = MapAreaEnd - PreferredBase;
+constexpr std::size_t MinimumSize = 0x0000001000000000ull;
 
 std::uintptr_t alignUp(std::uintptr_t value, std::size_t alignment) {
     return (value + alignment - 1) & ~(static_cast<std::uintptr_t>(alignment) - 1);
@@ -174,12 +176,24 @@ void GuestArenaReset_nid_postfix(void* pointer, std::size_t bytes) {
 }
 
 void GuestArenaMap_nid_postfix(void* pointer, std::size_t bytes, void* section, std::uint64_t offset, std::uint32_t protection) {
-    if (!Arena::Get().Contains(pointer, bytes)) throw std::invalid_argument("shared mapping outside the guest arena");
+    if (!Arena::Get().Contains(pointer, bytes)) {
+        char message[160];
+        std::snprintf(message, sizeof(message), "shared mapping outside the guest arena: 0x%llx+0x%llx (arena 0x%llx+0x%llx)",
+            static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(pointer)), static_cast<unsigned long long>(bytes),
+            static_cast<unsigned long long>(Arena::Get().Base()), static_cast<unsigned long long>(Arena::Get().Size()));
+        throw std::invalid_argument(message);
+    }
     WindowsMappings::Get().Map(pointer, bytes, section, offset, protection);
 }
 
+// Called from other runtimes (the MSVC-built renderer), so no C++ exception may leave it: a
+// range that cannot be aliased returns null.
 void* GuestArenaMapAlias_nid_postfix(std::uintptr_t address, std::size_t bytes) {
-    return WindowsMappings::Get().MapAlias(address, bytes);
+    try {
+        return WindowsMappings::Get().MapAlias(address, bytes);
+    } catch (const std::exception&) {
+        return nullptr;
+    }
 }
 
 void GuestArenaUnmapAlias_nid_postfix(void* alias) {

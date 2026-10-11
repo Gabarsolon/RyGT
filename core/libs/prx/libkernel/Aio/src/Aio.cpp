@@ -1,3 +1,4 @@
+#include "prx/libkernel/File/include/File.hpp"
 #include <array>
 #include <cerrno>
 #include <chrono>
@@ -61,6 +62,7 @@ std::int64_t NativePread(std::int32_t fd, void* buf, std::size_t nbyte, std::int
         errno = error;
         return -1;
     }
+    PrepareGuestWrite(buf, nbyte);
     const int result = ::_read(duped, buf, static_cast<unsigned int>(nbyte));
     const int error = errno;
     ::_close(duped);

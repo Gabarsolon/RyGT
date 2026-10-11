@@ -115,7 +115,9 @@ int APS5_VABI sceKernelAllocateDirectMemory(int64_t search_start, int64_t search
   || (len & (PS5_PAGE_SIZE - 1)) || !phys_addr_out
   || (alignment != 0 && (alignment & (PS5_PAGE_SIZE - 1))))
   return SCE_KERNEL_ERROR_EINVAL;
- return DirectMemoryAlloc(search_start, search_end, len, alignment, memory_type, phys_addr_out);
+ const int result = DirectMemoryAlloc(search_start, search_end, len, alignment, memory_type, phys_addr_out);
+ if (result != 0) std::fprintf(stderr, "[memory] allocate direct 0x%llx-0x%llx len=0x%zx align=0x%zx type=%d failed: 0x%x\n", static_cast<long long>(search_start), static_cast<long long>(search_end), len, alignment, memory_type, result);
+ return result;
 }
 
 int APS5_VABI sceKernelAllocateMainDirectMemory(size_t len, size_t alignment, int memory_type, int64_t* phys_addr_out) {
@@ -148,8 +150,10 @@ size_t APS5_VABI sceKernelGetDirectMemorySize(void) {
 }
 
 int APS5_VABI sceKernelMapDirectMemory(void** addr, size_t len, int prot, int flags, int64_t direct_memory_start, size_t alignment) {
- (void)alignment;
- return DoMapDirect(addr, len, prot, flags, direct_memory_start, alignment);
+ void* requested = addr ? *addr : nullptr;
+ const int result = DoMapDirect(addr, len, prot, flags, direct_memory_start, alignment);
+ if (result != 0) std::fprintf(stderr, "[memory] map direct %p len=0x%zx prot=0x%x flags=0x%x phys=0x%llx align=0x%zx failed: 0x%x\n", requested, len, prot, flags, static_cast<long long>(direct_memory_start), alignment, result);
+ return result;
 }
 
 int APS5_VABI sceKernelMapDirectMemory2(void** addr, size_t len, int type, int prot, int flags, int64_t direct_memory_start, size_t alignment) {
@@ -187,12 +191,16 @@ int APS5_VABI sceKernelMunmap(uint64_t vaddr, size_t len) {
 
 int APS5_VABI sceKernelReleaseDirectMemory(int64_t start, size_t len) {
  if (start < 0 || len == 0) return SCE_KERNEL_ERROR_EINVAL;
+ UnmapDirectMemory(start, len);
  DirectMemoryFree(start, len);
  return 0;
 }
 
 int APS5_VABI sceKernelReserveVirtualRange(void** addr, size_t len, int flags, size_t alignment) {
- return DoReserveVirtual(addr, len, flags, alignment);
+ void* requested = addr ? *addr : nullptr;
+ const int result = DoReserveVirtual(addr, len, flags, alignment);
+ if (result != 0) std::fprintf(stderr, "[memory] reserve %p len=0x%zx flags=0x%x align=0x%zx failed: 0x%x\n", requested, len, flags, alignment, result);
+ return result;
 }
 
 int APS5_VABI sceKernelVirtualQuery(const void* addr, int flags, VirtualQueryInfo* info, uint64_t info_size) {
@@ -274,11 +282,18 @@ int APS5_VABI sceKernelVirtualQuery(const void* addr, int flags, VirtualQueryInf
 // Moved as-is (not yet implemented) from the monolithic libkernel/Export.cpp.
 // ---------------------------------------------------------------------------
 
+// As sceKernelReleaseDirectMemory, but the whole range must be allocated.
 int APS5_VABI sceKernelCheckedReleaseDirectMemory(int64_t start, size_t len) {
- (void)start;
- (void)len;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+ if (start < 0 || len == 0 || (static_cast<std::uint64_t>(start) & (PS5_PAGE_SIZE - 1)) != 0 || (len & (PS5_PAGE_SIZE - 1)) != 0) return SCE_KERNEL_ERROR_EINVAL;
+ for (std::uint64_t offset = 0; offset < len;) {
+  int64_t blockStart = 0;
+  int64_t blockEnd = 0;
+  int memoryType = 0;
+  const auto address = static_cast<std::uint64_t>(start) + offset;
+  if (!DirectMemoryFind(static_cast<int64_t>(address), false, &blockStart, &blockEnd, &memoryType) || static_cast<std::uint64_t>(blockStart) > address) return SCE_KERNEL_ERROR_ENOENT;
+  offset = static_cast<std::uint64_t>(blockEnd) - static_cast<std::uint64_t>(start);
+ }
+ return sceKernelReleaseDirectMemory(start, len);
 }
 
 int APS5_VABI sceKernelMtypeprotect(const void* addr, size_t len, int type, int prot) {

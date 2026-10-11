@@ -416,6 +416,9 @@ void* MapPlaced(void* addr, size_t len, int prot, int flags, size_t alignment) {
     if (addr) {
 #if defined(__linux__)
         return MapAtOrAbove(reinterpret_cast<std::uintptr_t>(addr), len, prot, alignment);
+#elif defined(_WIN32)
+        // A non-fixed address is only a hint; PS4 titles accept any placement in the arena.
+        return mmap_aligned(len, prot, alignment);
 #else
         throw std::invalid_argument("Non-fixed mapping address hints are not implemented");
 #endif
@@ -468,6 +471,19 @@ void EraseProtections(std::uintptr_t start, std::uintptr_t end) {
     }
 }
 
+// Whether every byte of [start, end) already has the protection prot.
+bool ProtectionUnchanged(std::uintptr_t start, std::uintptr_t end, int prot) {
+    std::lock_guard lock(g_protectionLock);
+    auto it = g_protections.upper_bound(start);
+    if (it == g_protections.begin()) return false;
+    --it;
+    for (auto cursor = start; cursor < end; ++it) {
+        if (it == g_protections.end() || it->first > cursor || it->second.end <= cursor || it->second.prot != prot) return false;
+        cursor = it->second.end;
+    }
+    return true;
+}
+
 void RecordProtection(const void* addr, size_t len, int prot) {
     const auto start = reinterpret_cast<std::uintptr_t>(addr);
     std::lock_guard lock(g_protectionLock);
@@ -492,15 +508,54 @@ void ValidateOutput(void** addr) {
 
 }
 
+// A renderer that caches GPU copies of guest memory (the shadGT-based libSceVideoOut.prx) must
+// drop them when the game unmaps or replaces that memory; it exports these entry points for it.
+// Called outside the allocation lock, since the renderer may read guest memory while flushing.
+void NotifyRenderer(const char* name, const void* addr, size_t len) {
+#ifdef _WIN32
+    using RangeFunction = void (*)(std::uint64_t, std::uint64_t);
+    static HMODULE renderer = nullptr;
+    if (renderer == nullptr) renderer = GetModuleHandleA("libSceVideoOut.prx");
+    if (renderer == nullptr || addr == nullptr || len == 0) return;
+    if (const auto function = reinterpret_cast<RangeFunction>(reinterpret_cast<void*>(GetProcAddress(renderer, name)))) {
+        function(reinterpret_cast<std::uint64_t>(addr), len);
+    }
+#else
+    (void)name;
+    (void)addr;
+    (void)len;
+#endif
+}
+
+// MAP_FIXED without MAP_NO_OVERWRITE replaces whatever is mapped there (PS4 titles rely on it,
+// e.g. GT Sport remaps a larger block over an existing one). A range wholly inside one registered
+// allocation is remapped in place by RemapFixedIntoRegistered; any other overlap is unmapped first.
+void ReleaseFixedOverlap(void* addr, size_t len, int flags) {
+    constexpr int GuestMapNoOverwrite = 0x80;
+    if (addr == nullptr || (flags & GuestMapFixedFlag) == 0 || (flags & GuestMapNoOverwrite) != 0) return;
+    bool overlaps = false;
+    {
+        GuestAllocations::Mutation mutation;
+        overlaps = !mutation.Covers(addr, len) && mutation.Overlaps(addr, len);
+    }
+    if (overlaps) {
+        Trace("fixed mapping %p+0x%zx replaces existing mappings", addr, len);
+        DoMunmap(addr, len);
+    }
+}
+
 int DoMapDirect(void** addr, size_t len, int prot, int flags, int64_t physStart, size_t alignment) {
     ValidateOutput(addr);
     if (len == 0 || (len & (PS5_PAGE_SIZE - 1)) != 0) return SCE_KERNEL_ERROR_EINVAL;
     if (physStart < 0 || (static_cast<std::uint64_t>(physStart) & (PS5_PAGE_SIZE - 1)) != 0 || static_cast<std::uint64_t>(physStart) >= DIRECT_MEMORY_SIZE || len > DIRECT_MEMORY_SIZE - static_cast<std::uint64_t>(physStart)) {
         return SCE_KERNEL_ERROR_EINVAL;
     }
+    if (*addr != nullptr && (flags & GuestMapFixedFlag) != 0) NotifyRenderer("RytyGpuUnmapMemory", *addr, len);
+    ReleaseFixedOverlap(*addr, len, flags);
     GuestAllocations::Mutation mutation;
     if (RemapFixedIntoRegistered(mutation, *addr, len, prot, flags, physStart)) {
         RecordProtection(*addr, len, prot);
+        NotifyRenderer("RytyGpuMapMemory", *addr, len);
         return 0;
     }
     if (*addr != nullptr && (flags & GuestMapFixedFlag) != 0) mutation.RequireAvailable(*addr, len);
@@ -518,15 +573,19 @@ int DoMapDirect(void** addr, size_t len, int prot, int flags, int64_t physStart,
     *addr = mapped;
     RecordProtection(mapped, len, prot);
     Trace("map direct %p+0x%zx phys=0x%llx prot=0x%x flags=0x%x align=0x%zx", mapped, len, static_cast<unsigned long long>(physStart), prot, flags, alignment);
+    NotifyRenderer("RytyGpuMapMemory", mapped, len);
     return 0;
 }
 
 int DoMapAnon(void** addr, size_t len, int prot, int flags) {
     ValidateOutput(addr);
     if (len == 0 || (len & (PS5_PAGE_SIZE - 1)) != 0) return SCE_KERNEL_ERROR_EINVAL;
+    if (*addr != nullptr && (flags & GuestMapFixedFlag) != 0) NotifyRenderer("RytyGpuUnmapMemory", *addr, len);
+    ReleaseFixedOverlap(*addr, len, flags);
     GuestAllocations::Mutation mutation;
     if (RemapFixedIntoRegistered(mutation, *addr, len, prot, flags)) {
         RecordProtection(*addr, len, prot);
+        NotifyRenderer("RytyGpuMapMemory", *addr, len);
         return 0;
     }
     if (*addr != nullptr && (flags & GuestMapFixedFlag) != 0) mutation.RequireAvailable(*addr, len);
@@ -540,6 +599,7 @@ int DoMapAnon(void** addr, size_t len, int prot, int flags) {
     *addr = mapped;
     RecordProtection(mapped, len, prot);
     Trace("map anon %p+0x%zx prot=0x%x flags=0x%x", mapped, len, prot, flags);
+    NotifyRenderer("RytyGpuMapMemory", mapped, len);
     return 0;
 }
 
@@ -552,6 +612,14 @@ int DoMprotect(const void* addr, size_t len, int prot) {
     const auto first = address & ~pageMask;
     const auto end = (address + len + pageMask) & ~pageMask;
     const auto bytes = static_cast<std::size_t>(end - first);
+    // Like the PS4 kernel, an unchanged protection changes nothing. GT Sport re-applies read-write
+    // to its 2 MB pool chunks during play; re-protecting them dropped the renderer's write
+    // tracking there, so later CPU writes no longer reached its caches (wrong glyphs).
+    // Only in the guest arena, where the pools are: elsewhere (the kernel arena commits pages on
+    // mprotect) the recorded protection need not match what is committed.
+    constexpr std::uintptr_t GuestArenaBase = 0x200000000;
+    constexpr std::uintptr_t GuestArenaEnd = 0xFC00000000;
+    if (first >= GuestArenaBase && end <= GuestArenaEnd && ProtectionUnchanged(first, end, prot)) return 0;
     const auto* pointer = reinterpret_cast<const void*>(first);
     const auto nativeProtection = LinuxProtFromSce(prot);
     GuestAllocations::Mutation mutation;
@@ -569,12 +637,14 @@ int DoMprotect(const void* addr, size_t len, int prot) {
         if (mprotect(const_cast<void*>(pointer), bytes, nativeProtection) != 0) throw std::system_error(errno, std::generic_category(), "mprotect failed");
     });
     RecordProtection(pointer, bytes, prot);
+    NotifyRenderer("RytyGpuProtectionChanged", pointer, bytes);
     return 0;
 }
 
 int DoMunmap(void* addr, size_t len) {
     Trace("unmap %p+0x%zx", addr, len);
     if (len == 0 || (len & (PS5_PAGE_SIZE - 1)) != 0 || !addr) return SCE_KERNEL_ERROR_EINVAL;
+    NotifyRenderer("RytyGpuUnmapMemory", addr, len);
     GuestAllocations::Mutation mutation;
     mutation.Unmap(addr, len, [&](const void* piece, std::size_t pieceBytes, const void* allocation, bool last) {
         auto* pieceAddress = const_cast<void*>(piece);
@@ -589,6 +659,9 @@ int DoMunmap(void* addr, size_t len) {
 #endif
     });
     RecordProtection(addr, len, -1);
+    // The renderer was told before the unmap so it stops using the memory; this tells it the
+    // pages are gone, so answers it cached in between are dropped.
+    NotifyRenderer("RytyGpuMappingChanged", addr, len);
     return 0;
 }
 
@@ -622,6 +695,28 @@ void CreateDirectMemoryBacking(int64_t start, size_t len, int memoryType) {
     for (std::size_t offset = 0; offset < len; offset += PS5_PAGE_SIZE) pages.emplace(first + offset, PhysicalPage{backing, offset});
     g_physPages.merge(pages);
     Trace("allocate physical 0x%llx+0x%zx", static_cast<unsigned long long>(first), len);
+}
+
+// Releasing direct memory on a PS4 also unmaps every virtual mapping of it; titles release
+// without unmapping first (GT Sport maps, queries and releases scratch blocks this way).
+void UnmapDirectMemory(int64_t start, size_t len) {
+    const auto first = static_cast<std::uint64_t>(start);
+    const auto last = first + len;
+    std::vector<std::pair<std::uintptr_t, std::size_t>> ranges;
+    {
+        std::lock_guard lock(g_directLock);
+        for (const auto& [base, mapping] : g_directMappings) {
+            const auto mappingEnd = mapping.phys + (mapping.end - base);
+            const auto overlapFirst = std::max(first, mapping.phys);
+            const auto overlapLast = std::min(last, mappingEnd);
+            if (overlapFirst >= overlapLast) continue;
+            ranges.emplace_back(base + (overlapFirst - mapping.phys), overlapLast - overlapFirst);
+        }
+    }
+    for (const auto& [address, bytes] : ranges) {
+        Trace("release unmaps %p+0x%zx", reinterpret_cast<void*>(address), bytes);
+        DoMunmap(reinterpret_cast<void*>(address), bytes);
+    }
 }
 
 void ForgetDirectMemory(int64_t start, size_t len) {

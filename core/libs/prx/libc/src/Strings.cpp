@@ -3,6 +3,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <cctype>
+#include <cmath>
 #include <cwchar>
 #include <cstdio>
 #include <limits>
@@ -100,6 +101,12 @@ unsigned long long APS5_VABI strtoull_nid_postfix(const char* str, char** endptr
 
 double APS5_VABI strtod_nid_postfix(const char* str, char** endptr) {
     return std::strtod(str, endptr);
+}
+
+// Dinkumware's _Stod (libSceLibcInternal): strtod scaled by 10^pw; the firmware's libSceNgs2 imports it.
+double APS5_VABI _Stod_nid_postfix(const char* str, char** endptr, long pw) {
+    const double value = std::strtod(str, endptr);
+    return pw == 0 ? value : value * std::pow(10.0, static_cast<double>(pw));
 }
 
 double APS5_VABI atof_nid_postfix(const char* str) { return std::atof(str); }

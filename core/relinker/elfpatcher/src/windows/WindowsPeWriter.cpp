@@ -30,7 +30,11 @@ std::vector<std::uint8_t> WindowsPeWriter::Write(const std::vector<PeSection>& s
     Io::WriteU16(result, optionalOffset + 50, 2);
     Io::WriteU32(result, optionalOffset + 60, LoadRva);
     Io::WriteU16(result, optionalOffset + 68, windowsGui ? 2 : 3);
-    Io::WriteU16(result, optionalOffset + 70, directories[5].Size == 0 ? 0x100 : 0x160);
+    // No HIGH_ENTROPY_VA: high-entropy ASLR scatters Windows allocations across the range the guest
+    // arena must reserve (PS4 titles map fixed addresses up to 0xFC00000000). No DYNAMIC_BASE either:
+    // ASLR can place the image above 2^40, where a PS4 GPU (and renderers tracking guest pages in a
+    // 40-bit table) cannot address the title's own data; the image stays at ImageBase.
+    Io::WriteU16(result, optionalOffset + 70, 0x100);
     Io::WriteU64(result, optionalOffset + 72, 0x210000);
     Io::WriteU64(result, optionalOffset + 80, 0x200000);
     Io::WriteU64(result, optionalOffset + 88, 0x100000);

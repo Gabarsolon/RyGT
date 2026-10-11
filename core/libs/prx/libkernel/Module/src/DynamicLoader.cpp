@@ -71,7 +71,12 @@ void* APS5_VABI dlopen_nid_postfix(const char* path, int flags) {
         } else {
             if (!*path) { Error("dlopen: empty module path"); return nullptr; }
             const auto resolved = ResolvePath_nid_no_patch(path);
-            module->native = LoadLibraryExW(resolved.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+            // A module the converter already turned into a startup guest module (for example a PS4
+            // title's /app0/logiWheel.prx) is loaded and initialized; hand out that instance.
+            const auto guestName = resolved.filename().wstring() + L".guest.prx";
+            module->native = GetModuleHandleW(guestName.c_str());
+            if (module->native) module->owned = false;
+            else module->native = LoadLibraryExW(resolved.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
         }
         if (!module->native) {
             char message[128];

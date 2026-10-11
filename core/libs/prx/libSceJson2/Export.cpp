@@ -473,6 +473,20 @@ int APS5_VABI _ZN3sce4Json11Initializer10initializeEPKNS0_13InitParameterE(void*
     return 0;
 }
 
+// The RTTI-enabled initialization parameter (allocator, its user data, file buffer size). This
+// library allocates with the host heap, so the fields are only recorded.
+struct InitParameterRtti {
+    void* allocator;
+    void* user_data;
+    std::size_t file_buffer_size;
+};
+
+void APS5_VABI _ZN3sce4Json17InitParameterRttiC1EPNS0_14AllocParamRttiEPvm(InitParameterRtti* self, void* allocator, void* user_data, std::size_t file_buffer_size) {
+    self->allocator = allocator;
+    self->user_data = user_data;
+    self->file_buffer_size = file_buffer_size;
+}
+
 int APS5_VABI _ZN3sce4Json11Initializer9terminateEv(void* self) {
     (void)self;
     auto& state = State();
@@ -674,6 +688,9 @@ const Value* APS5_VABI _ZNK3sce4Json5ValueixEPKc(const Value* self, const char* 
         for (const auto& pair : *n.object.items)
             if (*pair.key.text == key) return &pair.value;
     return &NullAccess(TypeNull, self);
+}
+const Value* APS5_VABI _ZNK3sce4Json5Value8getValueERKNS0_6StringE(const Value* self, const String* key) {
+    return _ZNK3sce4Json5ValueixEPKc(self, key != nullptr ? key->text->c_str() : nullptr);
 }
 const Value* APS5_VABI _ZNK3sce4Json5ValueixEm(const Value* self, std::size_t index) {
     const Node& n = NodeOf(*self);

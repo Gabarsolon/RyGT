@@ -12,6 +12,7 @@
 #include <cstddef>
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
+#include <cstdlib>
 #include <mutex>
 #ifdef _WIN32
 #include <vector>
@@ -78,6 +79,14 @@ static bool HostHasAddress(int family) {
 #endif
 }
 
+// sceNetCtlGetInfo has no host equivalent and always reports NOT_CONNECTED, so a connected state
+// contradicts it; titles then take online paths that fail halfway (GT Sport's boot script reads a
+// nil network value). The console reports itself offline unless RYTY_NETWORK_CONNECTED is set.
+static bool ReportConnected(int family) {
+    static const bool enabled = std::getenv("RYTY_NETWORK_CONNECTED") != nullptr;
+    return enabled && HostHasAddress(family);
+}
+
 extern "C" {
 
 int APS5_VABI sceNetCtlCheckCallback(void) {
@@ -104,13 +113,13 @@ int APS5_VABI sceNetCtlGetResult(int event_type, int* error_code) {
 
 int APS5_VABI sceNetCtlGetState(int* state) {
     if (!state) return SCE_NET_CTL_ERROR_INVALID_ADDR;
-    *state = HostHasAddress(AF_UNSPEC) ? NET_CTL_STATE_IPOBTAINED : NET_CTL_STATE_DISCONNECTED;
+    *state = ReportConnected(AF_UNSPEC) ? NET_CTL_STATE_IPOBTAINED : NET_CTL_STATE_DISCONNECTED;
     return 0;
 }
 
 int APS5_VABI sceNetCtlGetStateV6(int* state) {
     if (!state) return SCE_NET_CTL_ERROR_INVALID_ADDR;
-    *state = HostHasAddress(AF_INET6) ? NET_CTL_STATE_IPOBTAINED : NET_CTL_STATE_DISCONNECTED;
+    *state = ReportConnected(AF_INET6) ? NET_CTL_STATE_IPOBTAINED : NET_CTL_STATE_DISCONNECTED;
     return 0;
 }
 

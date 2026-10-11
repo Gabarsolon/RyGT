@@ -218,6 +218,22 @@ void* APS5_VABI sceKernelGetProcParam(void) {
     return const_cast<void*>(ApplicationProcessParameters_nid_no_patch());
 }
 
+// The process parameters start with size (8 bytes), magic (4), entry count (4) and the SDK version
+// the application was built with.
+int APS5_VABI sceKernelGetCompiledSdkVersion(std::int32_t* version) {
+    if (!version) return sceInvalidArgument;
+    const auto* parameters = static_cast<const std::uint8_t*>(ApplicationProcessParameters_nid_no_patch());
+    std::memcpy(version, parameters + 0x10, sizeof(*version));
+    return 0;
+}
+
+// On a PS4 the system folders (fonts among them) sit under a random per-boot directory name that
+// this returns. Guest paths resolve below the run folder, so system fonts go in
+// <run folder>/sys/common/font and font2.
+const char* APS5_VABI sceKernelGetFsSandboxRandomWord(void) {
+    return "sys";
+}
+
 int APS5_VABI sceKernelUuidCreate(std::uint32_t* uuid) {
     if (!uuid) return sceInvalidArgument;
     static thread_local std::random_device device;

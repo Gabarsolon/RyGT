@@ -1,5 +1,8 @@
+#include <atomic>
 #include <cstdint>
 #include <cstddef>
+#include <cstdio>
+#include <cstring>
 #include <exception>
 #include <mutex>
 #include "SceTypes.hpp"
@@ -45,6 +48,31 @@ int PoolDecommit(void* addr, uint64_t len) {
     return ret;
 }
 
+// The PS4 moves the pool's physical pages from src to dst (dst gets src's bytes and protection,
+// src is decommitted). Pool memory here is a fixed range per address, so the bytes are copied.
+// GT Sport's batches use it; it failed with EINVAL before, leaving stale bytes at dst.
+int PoolMove(void* dst, void* src, uint64_t len) {
+    if (!dst || !src || len == 0 || !PageAligned(reinterpret_cast<uintptr_t>(dst)) ||
+        !PageAligned(reinterpret_cast<uintptr_t>(src)) || !PageAligned(len)) {
+        return SCE_KERNEL_ERROR_EINVAL;
+    }
+    int prot = 0;
+    if (!GuestProtection(reinterpret_cast<uintptr_t>(src), &prot) || prot == 0) prot = 0x33;
+    constexpr int CpuReadWrite = 0x3;
+    int ret = DoMprotect(dst, static_cast<size_t>(len), prot | CpuReadWrite);
+    if (ret == 0) ret = DoMprotect(src, static_cast<size_t>(len), prot | CpuReadWrite);
+    if (ret != 0) return ret;
+    std::memmove(dst, src, static_cast<size_t>(len));
+    ret = DoMprotect(dst, static_cast<size_t>(len), prot);
+    if (ret == 0) ret = DoMprotect(src, static_cast<size_t>(len), 0);
+    static std::atomic<int> logged{0};
+    if (logged.fetch_add(1) < 10) {
+        std::fprintf(stderr, "[MEMPOOL] move %p -> %p len 0x%llx prot 0x%x -> %d\n", src, dst,
+                     static_cast<unsigned long long>(len), prot, ret);
+    }
+    return ret;
+}
+
 template <typename TFunction>
 int Guarded(TFunction function) {
     try {
@@ -71,10 +99,19 @@ int APS5_VABI sceKernelMemoryPoolBatch(const KernelMemoryPoolBatchEntry* entries
     case 2: return PoolDecommit(e.decommit.addr, e.decommit.len);
     case 3: return DoMprotect(e.protect.addr, static_cast<size_t>(e.protect.len), e.protect.prot);
     case 4: return DoMprotect(e.type_protect.addr, static_cast<size_t>(e.type_protect.len), e.type_protect.prot);
-    default: return SCE_KERNEL_ERROR_EINVAL;
+    case 5: return PoolMove(e.move.dst, e.move.src, e.move.len);
+    default: {
+     static std::atomic<int> logged{0};
+     if (logged.fetch_add(1) < 10) std::fprintf(stderr, "[MEMPOOL] batch op %u not supported\n", e.op);
+     return SCE_KERNEL_ERROR_EINVAL;
+    }
    }
   });
-  if (ret != 0) break;
+  if (ret != 0) {
+   static std::atomic<int> logged{0};
+   if (logged.fetch_add(1) < 10) std::fprintf(stderr, "[MEMPOOL] batch entry %d (op %u) failed: 0x%x\n", done, e.op, ret);
+   break;
+  }
  }
  if (num_entries_out) *num_entries_out = done;
  return ret;

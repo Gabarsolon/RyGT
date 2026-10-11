@@ -4,6 +4,7 @@
 #include "prx/libc/include/General.hpp"
 #include "prx/libkernel/AppMetadata/include/AppMetadata.hpp"
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <stdexcept>
@@ -42,6 +43,16 @@ int APS5_VABI sceAppContentAddcontUnmount(const AppContentMountPoint* mount_poin
  return 0;
 }
 
+// No add-on content is installed, so the list is always empty.
+int APS5_VABI sceAppContentGetAddcontInfoList(uint32_t service_label, void* list, uint32_t list_num, uint32_t* hit_num) {
+    (void)service_label;
+    (void)list;
+    (void)list_num;
+    if (!hit_num) return SCE_APP_CONTENT_ERROR_PARAMETER;
+    *hit_num = 0;
+    return 0;
+}
+
 int APS5_VABI sceAppContentAppParamGetInt(uint32_t param_id, int32_t* value) {
     if (!value) return SCE_APP_CONTENT_ERROR_PARAMETER;
     switch (param_id) {
@@ -57,6 +68,11 @@ int APS5_VABI sceAppContentAppParamGetInt(uint32_t param_id, int32_t* value) {
 }
 
 int APS5_VABI sceAppContentDownloadDataGetAvailableSpaceKb(const AppContentMountPoint* mount_point, size_t* available_space_kb) {
+    static bool traced = false;
+    if (!traced) {
+        traced = true;
+        std::fprintf(stderr, "[APPCONTENT] download data space: mount point %s\n", mount_point ? mount_point->data : "(null)");
+    }
     if (!available_space_kb) return SCE_APP_CONTENT_ERROR_PARAMETER;
     if (!mount_point || std::strncmp(mount_point->data, DOWNLOAD_MOUNT_POINT, sizeof(mount_point->data)) != 0) APS5_INVALID_ARG_EX;
     const std::uint64_t quotaKb = GetAppDownloadDataSizeMiB_nid_postfix() * 1024u;
@@ -69,6 +85,7 @@ int APS5_VABI sceAppContentDownloadDataGetAvailableSpaceKb(const AppContentMount
     }
     const std::uint64_t hostKb = std::filesystem::space(directory).available / 1024u;
     *available_space_kb = static_cast<size_t>(std::min(quotaKb - std::min(quotaKb, usedKb), hostKb));
+    std::fprintf(stderr, "[APPCONTENT] download data space: %zu KiB free of %llu KiB\n", *available_space_kb, static_cast<unsigned long long>(quotaKb));
     return 0;
 }
 
@@ -76,6 +93,11 @@ int APS5_VABI sceAppContentInitialize(const AppContentInitParam* init_param, App
     (void)init_param;
     if (!boot_param) return SCE_APP_CONTENT_ERROR_PARAMETER;
     std::memset(boot_param, 0, sizeof(*boot_param));
+    // On a PS4, /download0 is mounted before the title starts whenever it declares download data,
+    // and titles open files there without asking about it first.
+    if (GetAppDownloadDataSizeMiB_nid_postfix() != 0) {
+        std::filesystem::create_directories(ResolvePath_nid_no_patch(DOWNLOAD_MOUNT_POINT));
+    }
     return 0;
 }
 
@@ -87,6 +109,7 @@ int APS5_VABI sceAppContentTemporaryDataFormat(const AppContentMountPoint* mount
 int APS5_VABI sceAppContentTemporaryDataGetAvailableSpaceKb(const AppContentMountPoint* mount_point, size_t* available_space_kb) {
     if (!available_space_kb) return SCE_APP_CONTENT_ERROR_PARAMETER;
     *available_space_kb = static_cast<size_t>(std::filesystem::space(TemporaryDirectory(mount_point)).available / 1024);
+    std::fprintf(stderr, "[APPCONTENT] temporary data space: %zu KiB free\n", *available_space_kb);
     return 0;
 }
 

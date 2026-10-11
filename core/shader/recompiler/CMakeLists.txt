@@ -134,9 +134,11 @@ function(add_shader_recompiler target runtimeTarget)
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvMemory/SpirvTypes.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvMemory/SpirvEmitterHelpers.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvMemory/SpirvMemoryInstructions.cpp
-
-            ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/tests/DummyShaders.cpp
     )
+    # tests/DummyShaders.cpp is not published with the repository.
+    if(EXISTS "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/tests/DummyShaders.cpp")
+        target_sources(${target} PRIVATE "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/tests/DummyShaders.cpp")
+    endif()
 
     target_include_directories(${target} PUBLIC
             ${PROJECT_SOURCE_DIR}/core/libs

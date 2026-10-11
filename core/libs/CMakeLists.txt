@@ -19,7 +19,12 @@ target_compile_features(nid_patcher PRIVATE cxx_std_20)
 
 if(MINGW)
     target_link_options(nid_patcher PRIVATE -static -static-libgcc -static-libstdc++)
-    add_compile_options(-fno-asynchronous-unwind-tables)
+    # MSYS2's SEH-configured GCC turns -fno-asynchronous-unwind-tables into SJLJ exception handling,
+    # whose runtime it does not ship, so host libraries keep the default SEH unwind tables there.
+    option(RTY_MINGW_NO_ASYNC_UNWIND "Compile runtime libraries with -fno-asynchronous-unwind-tables" OFF)
+    if(RTY_MINGW_NO_ASYNC_UNWIND)
+        add_compile_options(-fno-asynchronous-unwind-tables)
+    endif()
 endif()
 
 function(configure_windows_unwind target)

@@ -65,6 +65,15 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
     if (!hasDynamicSegment)
         throw RelinkerException("No PT_DYNAMIC segment found");
 
+    // DT_OS_* table values are offsets relative to PT_SCE_DYNLIBDATA, not file offsets.
+    FileByteOffset sceDynlibBase = 0;
+    for (const auto& ph : programHeaders) {
+        if (ph.Type == PT_SCE_DYNLIBDATA) {
+            sceDynlibBase = ph.Offset;
+            break;
+        }
+    }
+
     auto hasTag = [&](const std::int64_t tag) {
         for (const auto& t : dynTags)
             if (t.Tag == tag)
@@ -91,7 +100,7 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
 
     auto readAsOffset = [&](const std::int64_t osTag, const std::int64_t sysvTag, const char* name) -> FileByteOffset {
         if (requireExactlyOneOf(osTag, sysvTag, name))
-            return getTagValue(osTag);
+            return sceDynlibBase + getTagValue(osTag);
         return _elfReader->TranslateVirtualAddress(getTagValue(sysvTag));
     };
 

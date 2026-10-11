@@ -6,7 +6,10 @@
 #include <filesystem>
 #include <optional>
 #include <cerrno>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <set>
 #include "prx/libc/include/General.hpp"
 #include "prx/libc/include/GuestHeap.hpp"
 
@@ -153,5 +156,15 @@ extern "C" char* APS5_VABI getcwd_nid_postfix(char* buffer, std::size_t size) {
 }
 
 extern "C" void NotImplemented_nid_no_patch(const char* funcName) {
-    throw std::runtime_error(std::string(funcName) + " not implemented");
+    // RTY_LENIENT_UNIMPLEMENTED=1 logs each missing function once and lets the caller return its
+    // default (usually 0), so titles that only probe optional services can keep running.
+    static const bool lenient = [] {
+        const char* value = std::getenv("RTY_LENIENT_UNIMPLEMENTED");
+        return value != nullptr && *value != '\0' && std::strcmp(value, "0") != 0;
+    }();
+    if (!lenient) throw std::runtime_error(std::string(funcName) + " not implemented");
+    static std::mutex lock;
+    static std::set<std::string> reported;
+    std::lock_guard guard(lock);
+    if (reported.insert(funcName).second) std::fprintf(stderr, "[unimplemented] %s\n", funcName);
 }

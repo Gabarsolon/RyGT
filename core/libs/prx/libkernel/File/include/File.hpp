@@ -19,4 +19,9 @@ int APS5_VABI sceKernelUnlink(const char* path);
 
 }
 
+// Before the host kernel writes guest memory directly (a file read into a guest buffer), lets a
+// renderer that write-protects guest pages it caches drop them; the write would otherwise fail
+// on a protected page instead of faulting.
+void PrepareGuestWrite(void* buffer, std::size_t bytes);
+
 #endif

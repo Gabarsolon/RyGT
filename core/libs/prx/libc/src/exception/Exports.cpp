@@ -40,7 +40,9 @@ GCC_GLOBAL_ALIAS(_Unwind_RaiseException, _Unwind_RaiseException_nid_postfix);
 GCC_GLOBAL_ALIAS(_Unwind_Resume_or_Rethrow, _Unwind_Resume_or_Rethrow_nid_postfix);
 GCC_GLOBAL_ALIAS(_Unwind_DeleteException, _Unwind_DeleteException_nid_postfix);
 
-#ifdef _WIN32
+// Host libraries normally use this runtime too, which unwinds through DWARF .eh_frame data. A
+// toolchain that emits SEH unwind data instead (MSYS2 GCC) keeps libstdc++'s runtime for host code.
+#if defined(_WIN32) && !defined(__SEH__)
 extern "C" {
 void* NativeAllocateException(std::size_t size) asm("__cxa_allocate_exception");
 void* NativeAllocateException(std::size_t size) {

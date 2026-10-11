@@ -89,6 +89,8 @@ struct Port {
     std::uint64_t lastOutputTime = 0;
     SDL_AudioDeviceID device = 0;
     SDL_AudioSpec spec = {};
+    float tracePeak = 0.0f;   // APS5_TRACE_AUDIOOUT: loudest sample since the last report
+    std::uint32_t traceBlocks = 0;
 };
 
 static std::mutex g_mutex;
@@ -184,6 +186,27 @@ static const void* prepareBuffer(const Port& port, const void* data, std::vector
         }
     }
     return buf.data();
+}
+
+// APS5_TRACE_AUDIOOUT: how loud each port is, to tell silence from sound without listening.
+static void traceLevel(Port& port, const void* data) {
+    static const bool trace = std::getenv("APS5_TRACE_AUDIOOUT") != nullptr;
+    if (!trace || data == nullptr) {
+        return;
+    }
+    const std::size_t samples = static_cast<std::size_t>(port.samplesNum) * port.channels;
+    const bool isFloat = port.format == Format::F32Mono || port.format == Format::F32Stereo ||
+                         port.format == Format::F32_8Ch || port.format == Format::F32_8ChStd;
+    for (std::size_t i = 0; i < samples; ++i) {
+        const float value = isFloat ? static_cast<const float*>(data)[i]
+                                    : static_cast<const std::int16_t*>(data)[i] / 32768.0f;
+        port.tracePeak = std::max(port.tracePeak, value < 0 ? -value : value);
+    }
+    if (++port.traceBlocks % 200 == 0) {
+        std::fprintf(stderr, "[audioout] port %d (type %d): peak %.4f over the last 200 blocks\n",
+                     static_cast<int>(&port - g_ports) + 1, port.type, port.tracePeak);
+        port.tracePeak = 0.0f;
+    }
 }
 
 static void queueAudio(Port& port, const void* data) {
@@ -368,6 +391,7 @@ int APS5_VABI sceAudioOutOutput(int handle, const void* ptr) {
         nanosleep(&req, nullptr);
     }
 
+    traceLevel(*port, ptr);
     queueAudio(*port, ptr);
     port->lastOutputTime = sceKernelGetProcessTime();
     return static_cast<int>(port->samplesNum);
@@ -416,7 +440,10 @@ int APS5_VABI sceAudioOutOutputs(AudioOutOutputParam* param, std::uint32_t num) 
     }
 
     for (std::uint32_t i = 0; i < num; i++) {
-        if (auto* port = getPort(param[i].handle)) queueAudio(*port, param[i].ptr);
+        if (auto* port = getPort(param[i].handle)) {
+            traceLevel(*port, param[i].ptr);
+            queueAudio(*port, param[i].ptr);
+        }
     }
 
     const std::uint64_t done = sceKernelGetProcessTime();
