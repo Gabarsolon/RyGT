@@ -15,8 +15,39 @@
 #include <utility>
 #include <mutex>
 #include "Sse4aEmulation.hpp"
+#include <io.h>
 
 namespace {
+
+// RyGT: GTSport.exe is a Windows (GUI) program, so a double-click starts it without standard input,
+// output or error. Then input reads NUL and output and error go to stdout.log and stderr.log next to
+// the executable. The CRT descriptors 0-2 and the Win32 handles follow, because the game's own
+// writes reach fd 1 through sceKernelWrite (which failed with EBADF and threw) and crash reports
+// write to the stderr handle. Runs when libc.prx loads, before the game starts.
+void RedirectDetachedStream(DWORD id, FILE* stream, int fd, const char* name, const char* mode) {
+    HANDLE handle = GetStdHandle(id);
+    if (handle != nullptr && handle != INVALID_HANDLE_VALUE) return;
+    char path[MAX_PATH] = "NUL";
+    if (std::strcmp(name, "NUL") != 0) {
+        const DWORD length = GetModuleFileNameA(nullptr, path, MAX_PATH);
+        if (length == 0 || length >= MAX_PATH) return;
+        char* slash = std::strrchr(path, '\\');
+        if (!slash || static_cast<std::size_t>(slash - path) + 1 + std::strlen(name) >= MAX_PATH) return;
+        std::strcpy(slash + 1, name);
+    }
+    if (!std::freopen(path, mode, stream)) return;
+    if (_fileno(stream) != fd) _dup2(_fileno(stream), fd);
+    if (stream == stderr) std::setvbuf(stream, nullptr, _IONBF, 0);
+    SetStdHandle(id, reinterpret_cast<HANDLE>(_get_osfhandle(fd)));
+}
+
+[[maybe_unused]] const bool g_detachedOutput = [] {
+    // In order, so each stream gets the lowest free descriptor: its own.
+    RedirectDetachedStream(STD_INPUT_HANDLE, stdin, 0, "NUL", "r");
+    RedirectDetachedStream(STD_OUTPUT_HANDLE, stdout, 1, "stdout.log", "w");
+    RedirectDetachedStream(STD_ERROR_HANDLE, stderr, 2, "stderr.log", "w");
+    return true;
+}();
 
 // The reporter runs on a faulting thread that may itself hold the CRT stream lock (a fault inside
 // printf), so it writes straight to the stderr handle.

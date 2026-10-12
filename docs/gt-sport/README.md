@@ -20,12 +20,13 @@ program, together with shadGT's Vulkan renderer.
 
 Unzip a release on the same drive as your game dump, run `RyGT.exe`, pick the game folder, the
 1.69 update folder, a folder with your firmware's system modules and one with its fonts, then
-press **Set up** and **Play**. Set up also gives `GTSport.exe` the ryGT icon. The loader's source is
-in [loader](../../loader) (build it with `loader/build.cmd`).
+press **Set up** and **Play**. Set up also gives `GTSport.exe` the ryGT icon and makes it a Windows
+(GUI) program, so after that you can also open `GTSport.exe` directly: the runtime and renderer
+default to the settings GT Sport needs, and the game writes `stdout.log` and `stderr.log` itself.
+The loader's source is in [loader](../../loader) (build it with `loader/build.cmd`).
 
 Options: **Start in fullscreen** (borderless, on the window's display), the splash screen, FPS
-counter, Discord, upscaling (below), and **Skip this launcher**, which makes `RyGT.exe` start the game
-right away. Hold Shift while opening `RyGT.exe` to get the launcher back.
+counter, Discord and upscaling (below).
 
 ## Upscaling
 
@@ -53,13 +54,14 @@ own decrypted dump of CUSA03220 with update 1.69 and your own firmware files.
    `libSceFreeTypeOt.prx`, `libSceJson2.prx` and `libSceNgs2.prx`.
 3. Convert:
    `ryty.exe --windows --ps4 --skip-syscall-check --registry --report port-report.json eboot.elf GTSport.exe`
-4. Next to `GTSport.exe`, put the release's `libs` folder, MinGW DLLs, `Play-GTSport.cmd` and
+4. Next to `GTSport.exe`, put the release's `libs` folder, MinGW DLLs and
    `user\custom_configs\CUSA03220.json`, and an `app0` folder with the game's files (the base
    game's `gt*.vol`, the update's `gt.idx` and `gtuc/gtui/gtun.vol`, `sce_sys`, `app_param.sfo`
    and the rest of the dump's root) and the converted `sce_module\*.guest.prx` in
    `app0\sce_module`.
 5. System fonts go in `sys\common\font` and `sys\common\font2`.
-6. Run `Play-GTSport.cmd`.
+6. Run `GTSport.exe` (`RyGT.exe --prepare GTSport.exe` gives it the icon and the Windows subsystem,
+   so no console window opens).
 
 ## Status (2026-10-11)
 

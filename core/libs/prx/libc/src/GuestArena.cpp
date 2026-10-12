@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <iterator>
 #include <map>
 #include <mutex>
@@ -27,6 +29,11 @@ constexpr std::size_t MinimumSize = 0x0000001000000000ull;
 
 std::uintptr_t alignUp(std::uintptr_t value, std::size_t alignment) {
     return (value + alignment - 1) & ~(static_cast<std::uintptr_t>(alignment) - 1);
+}
+
+bool WriteWatchRequested() {
+    const char* enabled = std::getenv("APS5_WRITE_WATCH");
+    return std::getenv("APS5_NO_WRITE_WATCH") == nullptr && enabled && std::strcmp(enabled, "1") == 0;
 }
 
 class Arena {
@@ -94,7 +101,9 @@ private:
         for (std::uintptr_t base = PreferredBase; base + MinimumSize <= MapAreaEnd; base += MinimumSize) {
             for (std::size_t size = MaximumSize; size >= MinimumSize; size /= 2) {
                 if (base + size > MapAreaEnd) continue;
-                _writeWatched = std::getenv("APS5_NO_WRITE_WATCH") == nullptr;
+                // RyGT: off unless APS5_WRITE_WATCH=1; shadGT's renderer tracks guest writes itself
+                // and Ryty's watch fights it.
+                _writeWatched = WriteWatchRequested();
                 void* reserved = WindowsMappings::Get().Reserve(reinterpret_cast<void*>(base), size);
                 if (!reserved) continue;
                 _base = reinterpret_cast<std::uintptr_t>(reserved);
