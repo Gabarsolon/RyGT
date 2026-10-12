@@ -20,8 +20,12 @@ program, together with shadGT's Vulkan renderer.
 
 Unzip a release on the same drive as your game dump, run `RyGT.exe`, pick the game folder, the
 1.69 update folder, a folder with your firmware's system modules and one with its fonts, then
-press **Set up** and **Play**. The loader's source is in [loader](../../loader) (build it with
-`loader/build.cmd`).
+press **Set up** and **Play**. Set up also gives `GTSport.exe` the ryGT icon. The loader's source is
+in [loader](../../loader) (build it with `loader/build.cmd`).
+
+Options: **Start in fullscreen** (borderless, on the window's display), the splash screen, FPS
+counter, Discord, upscaling (below), and **Skip this launcher**, which makes `RyGT.exe` start the game
+right away. Hold Shift while opening `RyGT.exe` to get the launcher back.
 
 ## Upscaling
 

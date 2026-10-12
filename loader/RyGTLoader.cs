@@ -152,9 +152,85 @@ namespace RyGT
         }
     }
 
+    /// Gives the converted GTSport.exe the launcher's icon, so Explorer and shortcuts show the game's
+    /// art instead of a blank program icon. The icon is RyGT.exe's embedded copy of ryGT.ico.
+    static class GameIcon
+    {
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        static extern IntPtr BeginUpdateResource(string file, bool deleteExisting);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool UpdateResource(IntPtr update, IntPtr type, IntPtr name, ushort language, byte[] data, uint size);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool EndUpdateResource(IntPtr update, bool discard);
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        static extern IntPtr LoadLibraryEx(string file, IntPtr reserved, uint flags);
+
+        [DllImport("kernel32.dll")]
+        static extern IntPtr FindResource(IntPtr module, IntPtr name, IntPtr type);
+
+        [DllImport("kernel32.dll")]
+        static extern bool FreeLibrary(IntPtr module);
+
+        const int RtIcon = 3, RtGroupIcon = 14;
+
+        public static bool Has(string exe)
+        {
+            IntPtr module = LoadLibraryEx(exe, IntPtr.Zero, 0x2 | 0x20); // as a data file and image resource
+            if (module == IntPtr.Zero) return false;
+            try { return FindResource(module, (IntPtr)1, (IntPtr)RtGroupIcon) != IntPtr.Zero; }
+            finally { FreeLibrary(module); }
+        }
+
+        /// Adds every image of the .ico as RT_ICON 1..n and the icon group as RT_GROUP_ICON 1.
+        public static void Apply(string exe)
+        {
+            byte[] ico;
+            using (var stream = typeof(GameIcon).Assembly.GetManifestResourceStream("ryGT.ico"))
+            {
+                if (stream == null) throw new Exception("RyGT.exe has no embedded icon.");
+                ico = new byte[stream.Length];
+                stream.Read(ico, 0, ico.Length);
+            }
+            int count = BitConverter.ToUInt16(ico, 4);
+            IntPtr update = BeginUpdateResource(exe, false);
+            if (update == IntPtr.Zero) throw new Exception("Could not open " + exe + " (error " + Marshal.GetLastWin32Error() + ").");
+            bool ok = false;
+            try
+            {
+                var group = new MemoryStream();
+                var writer = new BinaryWriter(group);
+                writer.Write((ushort)0); writer.Write((ushort)1); writer.Write((ushort)count);
+                for (int i = 0; i < count; i++)
+                {
+                    int entry = 6 + 16 * i;
+                    int size = BitConverter.ToInt32(ico, entry + 8), offset = BitConverter.ToInt32(ico, entry + 12);
+                    var image = new byte[size];
+                    Array.Copy(ico, offset, image, 0, size);
+                    if (!UpdateResource(update, (IntPtr)RtIcon, (IntPtr)(i + 1), 0, image, (uint)size))
+                        throw new Exception("Could not add the icon (error " + Marshal.GetLastWin32Error() + ").");
+                    writer.Write(ico, entry, 12);   // width, height, colors, reserved, planes, bit count, size
+                    writer.Write((ushort)(i + 1)); // the RT_ICON id instead of the file offset
+                }
+                var data = group.ToArray();
+                if (!UpdateResource(update, (IntPtr)RtGroupIcon, (IntPtr)1, 0, data, (uint)data.Length))
+                    throw new Exception("Could not add the icon group (error " + Marshal.GetLastWin32Error() + ").");
+                ok = true;
+            }
+            finally
+            {
+                if (!EndUpdateResource(update, !ok) && ok)
+                    throw new Exception("Could not write the icon into " + exe + " (error " + Marshal.GetLastWin32Error() + ").");
+            }
+        }
+    }
+
     class Settings
     {
         public string Game = "", Update = "", Modules = "", Fonts = "";
+        public bool SkipLauncher; // start the game right away when RyGT.exe opens
         readonly string path;
 
         public Settings(string path)
@@ -170,12 +246,14 @@ namespace RyGT
                 else if (key == "update") Update = value;
                 else if (key == "modules") Modules = value;
                 else if (key == "fonts") Fonts = value;
+                else if (key == "skip_launcher") SkipLauncher = value == "1";
             }
         }
 
         public void Save()
         {
-            File.WriteAllLines(path, new[] { "game=" + Game, "update=" + Update, "modules=" + Modules, "fonts=" + Fonts });
+            File.WriteAllLines(path, new[] { "game=" + Game, "update=" + Update, "modules=" + Modules, "fonts=" + Fonts,
+                                             "skip_launcher=" + (SkipLauncher ? "1" : "0") });
         }
     }
 
@@ -196,7 +274,7 @@ namespace RyGT
             Text = "ryGT - Gran Turismo Sport";
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
             Font = new Font("Segoe UI", 9f);
-            ClientSize = new Size(720, 690);
+            ClientSize = new Size(720, 740);
             MinimumSize = new Size(600, 420);
             StartPosition = FormStartPosition.CenterScreen;
 
@@ -223,14 +301,17 @@ namespace RyGT
             AddOption(table, 5, "Show the game's splash screen while it starts", "General", "show_splash", false);
             AddOption(table, 6, "Show an FPS counter", "General", "show_fps_counter", false);
             AddOption(table, 7, "Show the game on Discord (Rich Presence)", "General", "discord_rpc_enabled", true);
+            // Borderless fullscreen on the window's display (shadGT's full_screen; "Fullscreen" as
+            // full_screen_mode would switch the display mode instead).
+            AddOption(table, 8, "Start in fullscreen", "GPU", "full_screen", false);
             // AMD FSR scales the game's 1920x1080 picture to the window or screen size: FSR 3.1 through
             // amd_fidelityfx_vk.dll (next to GTSport.exe, part of the release), or shadGT's FSR 1 pass.
-            var fsr = AddOption(table, 8, "Upscale with AMD FSR (window or screen larger than 1080p)", "GPU", "fsr_enabled", false);
+            var fsr = AddOption(table, 9, "Upscale with AMD FSR (window or screen larger than 1080p)", "GPU", "fsr_enabled", false);
             bool fsr3Installed = File.Exists(Path.Combine(root, "amd_fidelityfx_vk.dll"));
-            var fsr3 = AddOption(table, 9, fsr3Installed
+            var fsr3 = AddOption(table, 10, fsr3Installed
                 ? "Use FSR 3.1.4, the newest FSR for Vulkan (off: FSR 1)"
                 : "Use FSR 3.1.4 (needs amd_fidelityfx_vk.dll next to GTSport.exe)", "GPU", "fsr3_enabled", true);
-            var rcas = AddOption(table, 10, "FSR sharpening (RCAS)", "GPU", "rcas_enabled", true);
+            var rcas = AddOption(table, 11, "FSR sharpening (RCAS)", "GPU", "rcas_enabled", true);
             foreach (var sub in new[] { fsr3, rcas }) sub.Margin = new Padding(20, 4, 0, 0);
             fsr3.Enabled = fsr.Checked && fsr3Installed;
             rcas.Enabled = fsr.Checked;
@@ -239,10 +320,24 @@ namespace RyGT
             // nvngx_dlss.dll next to GTSport.exe. It is not part of the release, so the box stays grey without it.
             bool dlssInstalled = File.Exists(Path.Combine(root, "dlss", "ryGT_dlss.dll")) &&
                                  File.Exists(Path.Combine(root, "dlss", "nvngx_dlss.dll"));
-            var dlss = AddOption(table, 11, dlssInstalled
+            var dlss = AddOption(table, 12, dlssInstalled
                 ? "Upscale with NVIDIA DLSS (RTX cards; used instead of FSR when it works)"
                 : "Upscale with NVIDIA DLSS (needs the DLSS plugin in the dlss folder)", "GPU", "dlss_enabled", false);
             dlss.Enabled = dlssInstalled;
+            // Stored in RyGT.ini: RyGT.exe then starts the game without showing this window.
+            var skip = new CheckBox
+            {
+                Text = "Skip this launcher: open the game directly (hold Shift while opening RyGT.exe to get it back)",
+                AutoSize = true, Checked = settings.SkipLauncher, Margin = new Padding(0, 4, 0, 0)
+            };
+            skip.CheckedChanged += delegate
+            {
+                settings.SkipLauncher = skip.Checked;
+                try { settings.Save(); }
+                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
+            };
+            table.Controls.Add(skip, 0, 13);
+            table.SetColumnSpan(skip, 3);
 
             var buttons = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0, 8, 0, 8) };
             setup = new Button { Text = "Set up", AutoSize = true };
@@ -252,19 +347,19 @@ namespace RyGT
             play.Click += delegate { Play(); };
             open.Click += delegate { Process.Start("explorer.exe", "\"" + root + "\""); };
             buttons.Controls.AddRange(new Control[] { setup, play, open });
-            table.Controls.Add(buttons, 0, 12);
+            table.Controls.Add(buttons, 0, 14);
             table.SetColumnSpan(buttons, 3);
 
             status = new Label { AutoSize = true, Margin = new Padding(0, 0, 0, 4) };
-            table.Controls.Add(status, 0, 13);
+            table.Controls.Add(status, 0, 15);
             table.SetColumnSpan(status, 3);
 
             log = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, Font = new Font("Consolas", 9f) };
-            table.Controls.Add(log, 0, 14);
+            table.Controls.Add(log, 0, 16);
             table.SetColumnSpan(log, 3);
-            table.RowCount = 15;
+            table.RowCount = 17;
             table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            for (int i = 1; i < 14; i++) table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            for (int i = 1; i < 16; i++) table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             table.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             Dark.Apply(this);
@@ -296,7 +391,7 @@ namespace RyGT
         string ConfigPath { get { return Path.Combine(root, "user", "custom_configs", "CUSA03220.json"); } }
 
         /// A shadGT setting in a section of the GT Sport config (General: show_splash,
-        /// show_fps_counter, discord_rpc_enabled; GPU: fsr_enabled, fsr3_enabled, rcas_enabled, dlss_enabled).
+        /// show_fps_counter, discord_rpc_enabled; GPU: full_screen, fsr_enabled, fsr3_enabled, rcas_enabled, dlss_enabled).
         bool ReadSetting(string sectionName, string key, bool fallback)
         {
             try
@@ -465,6 +560,8 @@ namespace RyGT
             int code = Run(converter, "--windows --ps4 --skip-syscall-check --registry --report \"" +
                 Path.Combine(work, "port-report.json") + "\" \"" + Path.Combine(work, "eboot.elf") + "\" \"" + Exe + "\"", work);
             if (code != 0 || !File.Exists(Exe)) throw new Exception("The converter failed (exit code " + code + ").");
+            GameIcon.Apply(Exe);
+            Log("Gave GTSport.exe the ryGT icon.");
 
             // 3. app0: the game's files, the update's over the base game's, linked rather than copied.
             SetStatus("Linking the game files...");
@@ -623,7 +720,22 @@ namespace RyGT
         void Play()
         {
             if (!File.Exists(Exe)) { MessageBox.Show(this, "Press Set up first."); return; }
-            var info = new ProcessStartInfo("cmd.exe", "/c \"\"" + Exe + "\" > stdout.log 2> stderr.log\"")
+            StartGame(root);
+            status.Text = "GT Sport is starting. Logs: stdout.log and stderr.log in the RyGT folder.";
+        }
+
+        static bool IsReady(string root)
+        {
+            return File.Exists(Path.Combine(root, "GTSport.exe")) && Directory.Exists(Path.Combine(root, "app0", "sce_module"));
+        }
+
+        /// Starts GTSport.exe from root with the settings it needs, logging to stdout.log and stderr.log.
+        static void StartGame(string root)
+        {
+            string exe = Path.Combine(root, "GTSport.exe");
+            // Folders set up by an earlier RyGT.exe get the icon now.
+            try { if (!GameIcon.Has(exe)) GameIcon.Apply(exe); } catch { }
+            var info = new ProcessStartInfo("cmd.exe", "/c \"\"" + exe + "\" > stdout.log 2> stderr.log\"")
             {
                 WorkingDirectory = root, UseShellExecute = false, CreateNoWindow = true
             };
@@ -633,7 +745,6 @@ namespace RyGT
             info.EnvironmentVariables["SHADGT_DRAW_PIPE"] = "1";
             info.EnvironmentVariables["SHADGT_PREWARM"] = "1";
             Process.Start(info);
-            status.Text = "GT Sport is starting. Logs: stdout.log and stderr.log in the RyGT folder.";
         }
 
         [STAThread]
@@ -642,6 +753,19 @@ namespace RyGT
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             if (args.Contains("--setup")) return new LoaderForm().SetupWithoutWindow();
+            if (args.Length == 2 && args[0] == "--icon")
+            {
+                // Gives an already converted GTSport.exe the ryGT icon.
+                try { GameIcon.Apply(Path.GetFullPath(args[1])); return 0; }
+                catch (Exception e) { Console.Error.WriteLine(e.Message); return 1; }
+            }
+            string root = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
+            if (args.Length == 0 && (Control.ModifierKeys & Keys.Shift) == 0 &&
+                new Settings(Path.Combine(root, "RyGT.ini")).SkipLauncher && IsReady(root))
+            {
+                StartGame(root);
+                return 0;
+            }
             if (args.Length == 2 && args[0] == "--snapshot")
             {
                 // Renders the window's contents to a PNG (for checking the layout).
