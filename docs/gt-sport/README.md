@@ -25,8 +25,12 @@ press **Set up** and **Play**. The loader's source is in [loader](../../loader) 
 
 ## Upscaling
 
-GT Sport draws at 1920x1080. With a larger window or screen, the launcher's **Upscale with AMD FSR 1**
-box scales it with FSR 1 (with optional RCAS sharpening); otherwise the picture is stretched. NVIDIA
+GT Sport draws at 1920x1080. With a larger window or screen, the launcher's **Upscale with AMD FSR**
+box scales it up (with optional RCAS sharpening); otherwise the picture is stretched. It uses AMD FSR
+3.1.4, the newest FSR with a Vulkan backend (FidelityFX SDK 1.1.4; FSR 4 is DirectX 12 only), through
+AMD's signed `amd_fidelityfx_vk.dll`, which the release puts next to `GTSport.exe`. Unticking **Use FSR
+3.1.4** switches to shadGT's FSR 1. The renderer only has the finished picture, without motion
+vectors or depth, so FSR 3.1 starts a new history every frame and works as a spatial upscaler. NVIDIA
 DLSS is available as a separate plugin you build and install yourself, because NVIDIA's SDK can't be
 shipped with the GPL renderer; see [plugins/dlss](../../plugins/dlss). The launcher's DLSS box stays
 grey until the plugin is installed.

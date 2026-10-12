@@ -69,7 +69,7 @@ libs\  RyGT runtime libraries (kernel, libc, save data, audio, input, ...)
   - save data, AppContent, audio output and network control fixes, including holding the first
     save data mount until the boot screen is drawn (GT Sport's boot script otherwise crashes).
 - **Loader** ([loader](loader)): `RyGT.exe`, which converts the game from your own dump and
-  starts it, with options for the splash screen, FPS counter, Discord and FSR 1 upscaling.
+  starts it, with options for the splash screen, FPS counter, Discord and AMD FSR 3.1 or FSR 1 upscaling.
 - **DLSS plugin** ([plugins/dlss](plugins/dlss)): optional NVIDIA DLSS upscaling, built and
   installed separately (not in the releases).
 - **GT Sport guide** ([docs/gt-sport](docs/gt-sport)): setup from your own dump.

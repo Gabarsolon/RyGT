@@ -196,7 +196,7 @@ namespace RyGT
             Text = "ryGT - Gran Turismo Sport";
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
             Font = new Font("Segoe UI", 9f);
-            ClientSize = new Size(720, 660);
+            ClientSize = new Size(720, 690);
             MinimumSize = new Size(600, 420);
             StartPosition = FormStartPosition.CenterScreen;
 
@@ -223,17 +223,23 @@ namespace RyGT
             AddOption(table, 5, "Show the game's splash screen while it starts", "General", "show_splash", false);
             AddOption(table, 6, "Show an FPS counter", "General", "show_fps_counter", false);
             AddOption(table, 7, "Show the game on Discord (Rich Presence)", "General", "discord_rpc_enabled", true);
-            // shadGT's FSR 1 pass scales the game's 1920x1080 picture to the window or screen size.
-            var fsr = AddOption(table, 8, "Upscale with AMD FSR 1 (window or screen larger than 1080p)", "GPU", "fsr_enabled", false);
-            var rcas = AddOption(table, 9, "FSR sharpening (RCAS)", "GPU", "rcas_enabled", true);
-            rcas.Margin = new Padding(20, 4, 0, 0);
+            // AMD FSR scales the game's 1920x1080 picture to the window or screen size: FSR 3.1 through
+            // amd_fidelityfx_vk.dll (next to GTSport.exe, part of the release), or shadGT's FSR 1 pass.
+            var fsr = AddOption(table, 8, "Upscale with AMD FSR (window or screen larger than 1080p)", "GPU", "fsr_enabled", false);
+            bool fsr3Installed = File.Exists(Path.Combine(root, "amd_fidelityfx_vk.dll"));
+            var fsr3 = AddOption(table, 9, fsr3Installed
+                ? "Use FSR 3.1.4, the newest FSR for Vulkan (off: FSR 1)"
+                : "Use FSR 3.1.4 (needs amd_fidelityfx_vk.dll next to GTSport.exe)", "GPU", "fsr3_enabled", true);
+            var rcas = AddOption(table, 10, "FSR sharpening (RCAS)", "GPU", "rcas_enabled", true);
+            foreach (var sub in new[] { fsr3, rcas }) sub.Margin = new Padding(20, 4, 0, 0);
+            fsr3.Enabled = fsr.Checked && fsr3Installed;
             rcas.Enabled = fsr.Checked;
-            fsr.CheckedChanged += delegate { rcas.Enabled = fsr.Checked; };
+            fsr.CheckedChanged += delegate { fsr3.Enabled = fsr.Checked && fsr3Installed; rcas.Enabled = fsr.Checked; };
             // NVIDIA DLSS runs through the optional plugin (plugins/dlss): dlss\ryGT_dlss.dll and NVIDIA's
             // nvngx_dlss.dll next to GTSport.exe. It is not part of the release, so the box stays grey without it.
             bool dlssInstalled = File.Exists(Path.Combine(root, "dlss", "ryGT_dlss.dll")) &&
                                  File.Exists(Path.Combine(root, "dlss", "nvngx_dlss.dll"));
-            var dlss = AddOption(table, 10, dlssInstalled
+            var dlss = AddOption(table, 11, dlssInstalled
                 ? "Upscale with NVIDIA DLSS (RTX cards; used instead of FSR when it works)"
                 : "Upscale with NVIDIA DLSS (needs the DLSS plugin in the dlss folder)", "GPU", "dlss_enabled", false);
             dlss.Enabled = dlssInstalled;
@@ -246,19 +252,19 @@ namespace RyGT
             play.Click += delegate { Play(); };
             open.Click += delegate { Process.Start("explorer.exe", "\"" + root + "\""); };
             buttons.Controls.AddRange(new Control[] { setup, play, open });
-            table.Controls.Add(buttons, 0, 11);
+            table.Controls.Add(buttons, 0, 12);
             table.SetColumnSpan(buttons, 3);
 
             status = new Label { AutoSize = true, Margin = new Padding(0, 0, 0, 4) };
-            table.Controls.Add(status, 0, 12);
+            table.Controls.Add(status, 0, 13);
             table.SetColumnSpan(status, 3);
 
             log = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, Font = new Font("Consolas", 9f) };
-            table.Controls.Add(log, 0, 13);
+            table.Controls.Add(log, 0, 14);
             table.SetColumnSpan(log, 3);
-            table.RowCount = 14;
+            table.RowCount = 15;
             table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            for (int i = 1; i < 13; i++) table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            for (int i = 1; i < 14; i++) table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             table.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             Dark.Apply(this);
@@ -290,7 +296,7 @@ namespace RyGT
         string ConfigPath { get { return Path.Combine(root, "user", "custom_configs", "CUSA03220.json"); } }
 
         /// A shadGT setting in a section of the GT Sport config (General: show_splash,
-        /// show_fps_counter, discord_rpc_enabled; GPU: fsr_enabled, rcas_enabled, dlss_enabled).
+        /// show_fps_counter, discord_rpc_enabled; GPU: fsr_enabled, fsr3_enabled, rcas_enabled, dlss_enabled).
         bool ReadSetting(string sectionName, string key, bool fallback)
         {
             try
