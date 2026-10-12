@@ -297,6 +297,9 @@ namespace RyGT
     class LoaderForm : Form
     {
         static readonly string[] FirmwareModules = { "libSceFont", "libSceFontFt", "libSceFreeTypeOt", "libSceJson2", "libSceNgs2" };
+        // Used when present: the JPEG decoder (Scapes thumbnails and backgrounds) and PNG encoder (photos).
+        // Both are plain software modules needing only libkernel and libSceLibcInternal.
+        static readonly string[] OptionalFirmwareModules = { "libSceJpegDec", "libScePngEnc" };
 
         readonly string root = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
         readonly Settings settings;
@@ -553,6 +556,13 @@ namespace RyGT
                 var found = FindModule(settings.Modules, name);
                 if (found == null) throw new Exception("System module " + name + " was not found under " + settings.Modules + ".");
                 firmware[name] = found;
+            }
+            foreach (var name in OptionalFirmwareModules)
+            {
+                var found = FindModule(settings.Modules, name);
+                if (found != null) firmware[name] = found;
+                else Log("Note: " + name + " is not in the system modules folder; " +
+                         (name == "libSceJpegDec" ? "Scapes images will not show." : "saving photos will not work."));
             }
 
             // 1. The executable and modules to convert, unwrapped to plain ELF.
