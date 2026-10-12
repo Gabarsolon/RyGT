@@ -27,7 +27,7 @@ Known issues:
 - A few draws in the race summary can occasionally read garbage vertex descriptors; those draws
   are skipped.
 
-Tested on Windows 11 with an Intel i7-13700KF and an NVIDIA GPU.
+Tested on Windows 11 with an Intel i7-13700KF and an RTX 4070Ti.
 
 ## Download
 
