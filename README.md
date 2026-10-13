@@ -3,9 +3,9 @@
 <h1 align="center">
   <img src="assets/GranTurismoSportBanner.png" width="800" alt="Gran Turismo Sport banner">
   <br>
-  <b>shadGT</b>
+  <b>RyGT</b>
   <br>
-  <sub>Gran Turismo Sport on PC, built on the shadPS4 emulator</sub>
+  <sub>Gran Turismo Sport on PC</sub>
 </h1>
 
 
