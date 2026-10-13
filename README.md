@@ -1,5 +1,14 @@
 # RyGT
 
+<h1 align="center">
+  <img src="assets/GranTurismoSportBanner.png" width="800" alt="Gran Turismo Sport banner">
+  <br>
+  <b>shadGT</b>
+  <br>
+  <sub>Gran Turismo Sport on PC, built on the shadPS4 emulator</sub>
+</h1>
+
+
 **Gran Turismo Sport running as a native Windows program.**
 
 RyGT ports Gran Turismo Sport (CUSA03220, update 1.69) from PlayStation 4 to Windows. The game is
@@ -26,8 +35,10 @@ Known issues:
 - The first 30 seconds of a race can stutter while graphics pipelines compile.
 - A few draws in the race summary can occasionally read garbage vertex descriptors; those draws
   are skipped.
+- Pink issues during dirt race.
 
 Tested on Windows 11 with an Intel i7-13700KF and an RTX 4070Ti.
+Tested on Windows 11 with an AMD Ryzen 5 9600X and an RTX 3060 12GB
 
 ## Download
 
@@ -110,6 +121,12 @@ distribute copyrighted games, firmware, keys or proprietary libraries. Use your 
 obtained copy of the game and your own console's firmware files, in line with the laws where
 you live.
 
+Please do NOT ask shadps4 or Ryty servers for help from this project.
+
 ## License
 
 GNU General Public License version 2 only, as Ryty. The renderer (shadGT) is also GPL-2.0.
+
+<p align="center">
+  <img src="assets/GranTurismoSportBanner2.webp" width="800" alt="Gran Turismo Sport banner">
+</p>
