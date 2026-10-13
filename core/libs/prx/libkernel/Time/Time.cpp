@@ -229,7 +229,78 @@ static void TraceSleep(const void* caller, std::uint64_t microseconds) {
     std::fprintf(stderr, "\n");
 }
 
+extern "C++" {
+
+#ifdef _WIN32
+using DiagRecordFn = void (*)(std::uint32_t, std::uint64_t, std::uint64_t);
+
+static DiagRecordFn RendererDiag() {
+    static std::atomic<DiagRecordFn> found{nullptr};
+    static std::atomic<std::uint32_t> misses{0};
+    DiagRecordFn fn = found.load(std::memory_order_acquire);
+    if (fn != nullptr) return fn;
+    if ((misses.fetch_add(1, std::memory_order_relaxed) & 1023) != 0) return nullptr;
+    if (HMODULE renderer = GetModuleHandleA("libSceVideoOut.prx")) {
+        fn = reinterpret_cast<DiagRecordFn>(reinterpret_cast<void*>(GetProcAddress(renderer, "RyGtDiagRecordNs")));
+        if (fn != nullptr) found.store(fn, std::memory_order_release);
+    }
+    return fn;
+}
+#endif
+
+bool KernelDiagEnabled() {
+#ifdef _WIN32
+    static const bool enabled = [] {
+        const char* env = std::getenv("RYGT_DIAG");
+        return env != nullptr && env[0] == '1';
+    }();
+    return enabled;
+#else
+    return false;
+#endif
+}
+
+void KernelDiagRecord(KernelDiagZone zone, std::uint64_t nanos, const void* caller) {
+#ifdef _WIN32
+    if (!KernelDiagEnabled()) return;
+    if (const DiagRecordFn fn = RendererDiag()) {
+        static const auto image = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
+        const auto address = reinterpret_cast<std::uintptr_t>(caller);
+        fn(static_cast<std::uint32_t>(zone), nanos, address > image ? address - image : address);
+    }
+#endif
+}
+
+void KernelDiagMark(KernelDiagZone zone, std::uint64_t arg) {
+#ifdef _WIN32
+    if (!KernelDiagEnabled()) return;
+    if (const DiagRecordFn fn = RendererDiag()) fn(static_cast<std::uint32_t>(zone), 0, arg);
+#else
+    (void)zone;
+    (void)arg;
+#endif
+}
+
+std::uint64_t KernelDiagWaker(const void* caller) {
+#ifdef _WIN32
+    static const auto image = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
+    const auto address = reinterpret_cast<std::uintptr_t>(caller);
+    const std::uint64_t offset = address > image && address - image < 0xFFFFFFFFull ? address - image : 0;
+    return (static_cast<std::uint64_t>(GetCurrentThreadId()) << 32) | offset;
+#else
+    (void)caller;
+    return 0;
+#endif
+}
+
+}  // extern "C++"
+
 void KernelTraceWait_nid_postfix(const char* kind, const void* caller, std::uint64_t waitedNanos, bool timedOut) {
+    if (KernelDiagEnabled()) {
+        const KernelDiagZone zone = kind[0] == 'e' ? (kind[1] == 'q' ? KernelDiagZone::Equeue : KernelDiagZone::EventFlag)
+                                  : kind[0] == 's' ? KernelDiagZone::Sema : KernelDiagZone::Cond;
+        KernelDiagRecord(zone, waitedNanos, caller);
+    }
     static const bool enabled = std::getenv("APS5_TRACE_WAITS") != nullptr;
     if (!enabled) return;
     struct Site { std::uint64_t calls = 0; std::uint64_t timeouts = 0; std::uint64_t nanos = 0; std::uint64_t longest = 0; unsigned long lastThread = 0; };
@@ -269,6 +340,7 @@ void KernelTraceWait_nid_postfix(const char* kind, const void* caller, std::uint
 
 int APS5_VABI sceKernelUsleep_nid_postfix(KernelUseconds microseconds) {
     TraceSleep(__builtin_return_address(0), microseconds);
+    KernelDiagScope diag(KernelDiagZone::Sleep, __builtin_return_address(0));
     TimedWait::SleepNanos(static_cast<std::uint64_t>(microseconds) * 1000ULL);
     return 0;
 }
@@ -280,6 +352,7 @@ int APS5_VABI sceKernelNanosleep(const KernelTimespec* rqtp, KernelTimespec* rmt
     if (rqtp->tv_sec < 0 || rqtp->tv_nsec < 0 || rqtp->tv_nsec >= 1000000000LL) {
         return -1;
     }
+    KernelDiagScope diag(KernelDiagZone::Sleep, __builtin_return_address(0));
     TimedWait::SleepNanos(static_cast<std::uint64_t>(rqtp->tv_sec) * 1000000000ULL +
                           static_cast<std::uint64_t>(rqtp->tv_nsec));
     if (rmtp != nullptr) {
@@ -298,6 +371,7 @@ int APS5_VABI _nanosleep_nid_postfix(const KernelTimespec* rqtp, KernelTimespec*
 }
 
 int APS5_VABI usleep_nid_postfix(KernelUseconds microseconds) {
+    KernelDiagScope diag(KernelDiagZone::Sleep, __builtin_return_address(0));
     TimedWait::SleepNanos(static_cast<std::uint64_t>(microseconds) * 1000ULL);
     return 0;
 }

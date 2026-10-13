@@ -5,9 +5,14 @@
 #include "prx/libkernel/File/include/DirectoryDescriptor.hpp"
 #include "prx/libkernel/KernelErrors.hpp"
 #include "SceTypes.hpp"
+#include "prx/libkernel/Time/include/Time.hpp"
 
+#include <atomic>
 #include <cerrno>
+#include <cstdio>
+#include <cstring>
 #include <limits>
+#include <vector>
 #include <stdexcept>
 #include <string>
 
@@ -107,6 +112,26 @@ void PrepareGuestWrite(void* buffer, std::size_t bytes) {
 #endif
 }
 
+std::int64_t ReadIntoGuest(void* buffer, std::size_t bytes, const std::function<std::int64_t(void*)>& read) {
+    PrepareGuestWrite(buffer, bytes);
+    const std::int64_t n = read(buffer);
+    if (n >= 0 || buffer == nullptr || bytes == 0) return n;
+    const int error = errno;
+    std::vector<char> bounce(bytes);
+    const std::int64_t retried = read(bounce.data());
+    if (retried < 0) {
+        errno = error;
+        return n;
+    }
+    static std::atomic<unsigned> logged{0};
+    if (logged.fetch_add(1) < 10) {
+        std::fprintf(stderr, "[file] read into %p (%zu bytes) failed (errno %d); read again through a host buffer\n",
+                     buffer, bytes, error);
+    }
+    std::memcpy(buffer, bounce.data(), static_cast<std::size_t>(retried));
+    return retried;
+}
+
 static int SceErrorFromErrno(int error) {
     constexpr int GuestEio = 5;
     const int guest = error > 0 && error <= 34 ? error : GuestEio;
@@ -145,8 +170,8 @@ std::int64_t APS5_VABI sceKernelRead(int d, void* buf, std::size_t nbytes) {
     if (buf == nullptr) {
         throw std::invalid_argument(std::string(__func__) + ": buf is null");
     }
-    PrepareGuestWrite(buf, nbytes);
-    auto n = NativeRead(d, buf, nbytes);
+    KernelDiagScope diag(KernelDiagZone::FileRead, __builtin_return_address(0));
+    auto n = ReadIntoGuest(buf, nbytes, [&](void* target) -> std::int64_t { return NativeRead(d, target, nbytes); });
     if (n < 0) {
         throw std::runtime_error(std::string(__func__) + ": read failed, fd=" + std::to_string(d) + ", errno=" + std::to_string(errno));
     }

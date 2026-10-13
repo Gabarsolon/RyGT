@@ -317,6 +317,9 @@ int APS5_VABI sceKernelWaitEqueue(KernelEqueue eq, KernelEvent* ev, int num, int
     if (timo == nullptr || *timo != 0) {
         KernelTraceWait_nid_postfix("equeue", __builtin_return_address(0), static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - waitStart).count()), *out == 0);
     }
+    if (*out > 0 && KernelDiagEnabled()) {
+        KernelDiagMark(KernelDiagZone::EqueueWoken, (static_cast<std::uint64_t>(static_cast<std::uint16_t>(ev[0].filter)) << 48) | (static_cast<std::uint64_t>(ev[0].ident) & 0xFFFFFFFFFFFFull));
+    }
     if (*out == SCE_KERNEL_ERROR_EBADF) {
         return SCE_KERNEL_ERROR_EBADF;
     }

@@ -478,9 +478,15 @@ int RendererHandlesFault(EXCEPTION_POINTERS* info) {
 // so this is the only trace of it.
 void TraceThrow(EXCEPTION_POINTERS* info) {
     constexpr DWORD GccThrow = 0x20474343;
-    static const bool enabled = std::getenv("APS5_TRACE_THROW") != nullptr;
+    // On by default for the first 40 throws (a throw that escapes into game code ends the
+    // process with no other trace); APS5_TRACE_THROW=1 reports every one, =0 none.
+    static const char* setting = std::getenv("APS5_TRACE_THROW");
+    static const bool all = setting != nullptr && setting[0] == '1';
+    static const bool none = setting != nullptr && setting[0] == '0';
+    static std::atomic<unsigned> reported{0};
     const auto* record = info->ExceptionRecord;
-    if (!enabled || record->ExceptionCode != GccThrow || record->NumberParameters < 1) return;
+    if (none || record->ExceptionCode != GccThrow || record->NumberParameters < 1) return;
+    if (!all && reported.fetch_add(1) >= 40) return;
     // libgcc raises it with the _Unwind_Exception (64 bytes under SEH) that directly precedes the
     // thrown object; the object's vtable is preceded by its type_info.
     const auto unwind = static_cast<std::uintptr_t>(record->ExceptionInformation[0]);
