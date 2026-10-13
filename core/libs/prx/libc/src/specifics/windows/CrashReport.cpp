@@ -691,6 +691,22 @@ struct ExitReporter {
 } g_exitReporter;
 
 const bool g_crashReportInstalled = [] {
+    // The game's files (app0, _sd, user) are found relative to the working directory. Started
+    // from a shortcut, the taskbar or Windows search, that is not the game's folder, and the
+    // game failed at once ("neither param.json nor param.sfo found"). Use GTSport.exe's folder.
+    {
+        wchar_t exe[MAX_PATH] = {};
+        const DWORD length = GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        if (length != 0 && length < MAX_PATH) {
+            for (DWORD i = length; i > 0; --i) {
+                if (exe[i - 1] == L'\\' || exe[i - 1] == L'/') {
+                    exe[i - 1] = 0;
+                    SetCurrentDirectoryW(exe);
+                    break;
+                }
+            }
+        }
+    }
     g_sse4aEmulation = !IsEnvironmentSet("APS5_NO_SSE4A_EMULATION");
     g_sse4aTrace = IsEnvironmentSet("APS5_TRACE_SSE4A");
     AddVectoredExceptionHandler(1, ReportCrash);
@@ -709,6 +725,24 @@ const bool g_crashReportInstalled = [] {
                      static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(record->ExceptionAddress) - reinterpret_cast<std::uintptr_t>(module)),
                      record->NumberParameters >= 2 ? reinterpret_cast<void*>(record->ExceptionInformation[1]) : nullptr,
                      GetCurrentThreadId());
+        // The thread's name and the code addresses on its stack, so an error raised by a
+        // library (the code above is then only RaiseException) names its caller.
+        PWSTR description = nullptr;
+        if (SUCCEEDED(GetThreadDescription(GetCurrentThread(), &description)) && description) {
+            std::fprintf(stderr, "  thread name: %ls\n", description);
+            LocalFree(description);
+        }
+        const auto* context = info->ContextRecord;
+        char line[MAX_PATH + 64];
+        int printed = 0;
+        for (std::uint64_t slot = context->Rsp; printed < 24 && slot < context->Rsp + 0x2000; slot += 8) {
+            if (!IsReadable(slot)) break;
+            const auto value = *reinterpret_cast<const std::uint64_t*>(slot);
+            if (!IsExecutable(value)) continue;
+            DescribeAddress(value, line, sizeof(line));
+            std::fprintf(stderr, "  [rsp+0x%llx] %s\n", static_cast<unsigned long long>(slot - context->Rsp), line);
+            ++printed;
+        }
         std::fflush(stderr);
         return EXCEPTION_CONTINUE_SEARCH;
     });
