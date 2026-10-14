@@ -511,12 +511,20 @@ namespace RyGT
             // the game until it is compiled (instead of a stutter and missing objects).
             var shaders = Section(left, "Shaders");
             AddOption(shaders, "Precompile shaders on the splash screen", "GPU", "precompile_shaders", true);
-            var freeze = AddOption(shaders, "Pause the game while new shaders compile", "GPU", "compile_freeze", true);
-            var batchRow = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(22, 4, 0, 2), WrapContents = false };
-            var batchLabel = new Label { Text = "Compile batching", AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0) };
+            // What the game does while a new shader compiles during play (GPU.compile_mode).
+            var modeRow = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 4, 0, 2), WrapContents = false };
+            var modeLabel = new Label { Text = "When new shaders compile", AutoSize = false, Width = 196, Height = 20, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0) };
+            var mode = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160, FlatStyle = FlatStyle.Flat };
+            mode.Items.AddRange(new object[] { "Pause the game", "Slow motion", "Keep going (objects pop in)" });
+            mode.SelectedIndex = Math.Max(0, Math.Min(2, ReadIntSetting("GPU", "compile_mode", 1)));
+            modeRow.Controls.Add(modeLabel);
+            modeRow.Controls.Add(mode);
+            shaders.Controls.Add(modeRow);
+            var batchRow = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 4, 0, 2), WrapContents = false };
+            var batchLabel = new Label { Text = "Compile batching (when pausing)", AutoSize = false, Width = 196, Height = 20, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0) };
             // How long one pause may go on compiling the shaders of what comes next: longer pauses,
             // fewer of them (GPU.compile_batch_ms).
-            var batch = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200, FlatStyle = FlatStyle.Flat };
+            var batch = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160, FlatStyle = FlatStyle.Flat };
             var batchValues = new[] { 0, 100, 300, 1000 };
             batch.Items.AddRange(new object[] { "Off (only what is needed)", "Short (up to 0.1 s)", "Medium (up to 0.3 s)", "Long (up to 1 s)" });
             int current = ReadIntSetting("GPU", "compile_batch_ms", 0);
@@ -530,8 +538,13 @@ namespace RyGT
             batchRow.Controls.Add(batchLabel);
             batchRow.Controls.Add(batch);
             shaders.Controls.Add(batchRow);
-            batch.Enabled = freeze.Checked;
-            freeze.CheckedChanged += delegate { batch.Enabled = freeze.Checked; };
+            batch.Enabled = mode.SelectedIndex == 0;
+            mode.SelectedIndexChanged += delegate
+            {
+                batch.Enabled = mode.SelectedIndex == 0;
+                try { WriteSetting("GPU", "compile_mode", mode.SelectedIndex); }
+                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
+            };
 
             column.Controls.Add(grid);
 

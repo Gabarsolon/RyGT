@@ -2,7 +2,8 @@
 
 The renderer (`libSceVideoOut.prx`) is built from
 [shadGT, branch `ryty-gpu`](https://github.com/mlgprorektm8/shadGT/tree/ryty-gpu). Changes made
-after shadGT commit `29af7ca6` are kept here as patches, in order:
+after shadGT commit `29af7ca6` are kept here as patches, in order (the branch itself includes all of them from
+commit `498dfe6e`):
 
 | Patch | What it adds |
 |---|---|
@@ -10,6 +11,7 @@ after shadGT commit `29af7ca6` are kept here as patches, in order:
 | `0002-ryGT-splash-screen-shows-...` | Hotfix: the splash screen and progress bar show while the game waits for the precompile (it was a black screen) |
 | `0003-ryGT-Lewis-Hamilton-Time-Trial-...` | GTS-002: unlocks the Lewis Hamilton Time Trial Challenge in the Campaign menu (the add-on's unlock flags came from the shut-down servers); `RYGT_LEWIS=0` turns it off |
 | `0004-ryGT-Livery-Editor-offline-GTS-003` | GTS-003: enables the Livery button on the main menu while offline (the menu script greyed it out without the servers; the editor has its own offline mode that saves liveries locally); `RYGT_LIVERY=0` turns it off |
+| `0005-ryGT-effects-fix-frame-generation-...` | Dust, smoke and rain no longer show pink and black rectangles (the game's clears of reused effect memory ran as skipped "mask clears"); frame generation starts after the splash screen (it could freeze the precompile); slow-motion shader compiles; freeze and frame-capture diagnostics |
 
 To build: check out shadGT at `29af7ca6`, apply the patches with
 `git am <RyGT>/renderer/shadGT-patches/*.patch`, then build the `ryty_gpu` target as in the main
