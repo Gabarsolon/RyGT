@@ -37,16 +37,17 @@ namespace RyGT
         public static readonly Color Field = Color.FromArgb(45, 45, 48);
         public static readonly Color Button = Color.FromArgb(58, 58, 61);
         public static readonly Color ButtonHover = Color.FromArgb(75, 75, 80);
-        public static readonly Color Accent = Color.FromArgb(14, 99, 156);
-        public static readonly Color AccentHover = Color.FromArgb(28, 120, 180);
+        public static readonly Color Accent = Color.FromArgb(178, 24, 36);
+        public static readonly Color AccentHover = Color.FromArgb(206, 40, 52);
+        public static readonly Color Heading = Color.FromArgb(240, 96, 96);
         public static readonly Color Border = Color.FromArgb(70, 70, 74);
         public static readonly Color Text = Color.FromArgb(230, 230, 230);
         public static readonly Color DimText = Color.FromArgb(150, 150, 150);
 
         public static void Apply(Control control)
         {
-            control.BackColor = Back;
-            control.ForeColor = Text;
+            if (control.BackColor.A == 255) control.BackColor = Back;
+            if (control.Tag as string != "heading") control.ForeColor = Text;
             var button = control as Button;
             if (button != null)
             {
@@ -66,7 +67,9 @@ namespace RyGT
                 box.HandleCreated += delegate { Native.SetWindowTheme(box.Handle, "DarkMode_Explorer", null); };
             }
             var check = control as CheckBox;
-            if (check != null) check.FlatStyle = FlatStyle.Flat;
+            if (check != null && !(check is DarkCheckBox)) check.FlatStyle = FlatStyle.Flat;
+            var combo = control as ComboBox;
+            if (combo != null) combo.BackColor = Field;
             foreach (Control child in control.Controls) Apply(child);
         }
 
@@ -76,6 +79,103 @@ namespace RyGT
             int on = 1;
             if (Native.DwmSetWindowAttribute(form.Handle, 20, ref on, sizeof(int)) != 0)
                 Native.DwmSetWindowAttribute(form.Handle, 19, ref on, sizeof(int));
+        }
+    }
+
+    /// A check box drawn in the loader's colors: a dark square, red with a white tick when checked.
+    class DarkCheckBox : CheckBox
+    {
+        public DarkCheckBox()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer |
+                     ControlStyles.SupportsTransparentBackColor, true);
+            BackColor = Color.Transparent;
+        }
+
+        public override Size GetPreferredSize(Size proposedSize)
+        {
+            var text = TextRenderer.MeasureText(Text, Font);
+            return new Size(text.Width + 24, Math.Max(text.Height, 16) + 2);
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            PaintBehind(this, e.Graphics);
+        }
+
+        /// The window's picture under `control`, with the translucent layer of the panel it is on.
+        public static void PaintBehind(Control control, Graphics g)
+        {
+            var form = control.FindForm() as LoaderForm;
+            if (form == null || !form.PaintBackdrop(control, g))
+            {
+                using (var back = new SolidBrush(Dark.Back)) g.FillRectangle(back, control.ClientRectangle);
+            }
+            for (var parent = control.Parent; parent != null; parent = parent.Parent)
+            {
+                var glass = parent as GlassPanel;
+                if (glass != null)
+                {
+                    using (var overlay = new SolidBrush(glass.Overlay)) g.FillRectangle(overlay, control.ClientRectangle);
+                    break;
+                }
+            }
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            OnPaintBackground(e);
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            int size = 14;
+            var box = new Rectangle(1, (Height - size) / 2, size, size);
+            bool hover = ClientRectangle.Contains(PointToClient(Cursor.Position));
+            using (var fill = new SolidBrush(!Enabled ? Color.FromArgb(40, 40, 42) : Checked ? Dark.Accent : Color.FromArgb(32, 32, 34)))
+                g.FillRectangle(fill, box);
+            using (var border = new Pen(!Enabled ? Color.FromArgb(70, 70, 72) : Checked ? Dark.AccentHover : hover ? Color.FromArgb(150, 150, 155) : Color.FromArgb(105, 105, 110)))
+                g.DrawRectangle(border, box);
+            if (Checked)
+            {
+                using (var tick = new Pen(Enabled ? Color.White : Color.FromArgb(150, 150, 150), 2f))
+                {
+                    g.DrawLines(tick, new[]
+                    {
+                        new PointF(box.Left + 3f, box.Top + 7.5f),
+                        new PointF(box.Left + 6f, box.Top + 10.5f),
+                        new PointF(box.Left + 11f, box.Top + 4f)
+                    });
+                }
+            }
+            TextRenderer.DrawText(g, Text, Font, new Point(box.Right + 7, (Height - TextRenderer.MeasureText(Text, Font).Height) / 2),
+                                  Enabled ? ForeColor : Dark.DimText, TextFormatFlags.NoPrefix);
+        }
+
+        protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); Invalidate(); }
+        protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); Invalidate(); }
+    }
+
+    /// A settings panel over the window's background picture: it paints the picture under it and
+    /// a translucent dark layer itself, so the controls on it (transparent) repaint cleanly. A
+    /// translucent BackColor left old text behind when a control on it was redrawn.
+    class GlassPanel : TableLayoutPanel
+    {
+        public Color Overlay = Color.FromArgb(150, 12, 12, 14);
+
+        public GlassPanel()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer |
+                     ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
+            BackColor = Color.Transparent;
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            var form = FindForm() as LoaderForm;
+            if (form == null || !form.PaintBackdrop(this, e.Graphics))
+            {
+                using (var back = new SolidBrush(Dark.Back)) e.Graphics.FillRectangle(back, ClientRectangle);
+            }
+            using (var overlay = new SolidBrush(Overlay)) e.Graphics.FillRectangle(overlay, ClientRectangle);
         }
     }
 
@@ -314,46 +414,81 @@ namespace RyGT
             Text = "ryGT - Gran Turismo Sport";
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
             Font = new Font("Segoe UI", 9f);
-            ClientSize = new Size(720, 735);
-            MinimumSize = new Size(600, 420);
+            ClientSize = new Size(1280, 780);
+            MinimumSize = new Size(1060, 700);
             StartPosition = FormStartPosition.CenterScreen;
+            DoubleBuffered = true;
+            // The background picture (launcher\background.png next to RyGT.exe) fills the window;
+            // the settings sit on translucent panels over its dark left side.
+            background = LoadBackground();
+            if (background != null) ResizeRedraw = true;
 
-            var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 8, Padding = new Padding(12) };
-            table.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            table.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            Controls.Add(table);
-
-            var intro = new Label
+            var column = new TableLayoutPanel
             {
-                Text = "Pick your own decrypted GT Sport dump (CUSA03220), its 1.69 update, the system modules " +
-                       "from your PS4 firmware and its fonts. Set up converts the game for Windows; Play starts it.",
-                AutoSize = true, MaximumSize = new Size(680, 0), Margin = new Padding(0, 0, 0, 10)
+                Dock = DockStyle.Left, Width = 800, ColumnCount = 1, Padding = new Padding(24, 18, 10, 14),
+                BackColor = Color.Transparent, AutoScroll = true
             };
-            table.Controls.Add(intro, 0, 0);
-            table.SetColumnSpan(intro, 3);
+            column.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            Controls.Add(column);
 
-            game = AddRow(table, 1, "Game (CUSA03220)", settings.Game);
-            update = AddRow(table, 2, "Update 1.69 (if separate)", settings.Update);
-            modules = AddRow(table, 3, "System modules", settings.Modules);
-            fonts = AddRow(table, 4, "Fonts", settings.Fonts);
+            var title = new Label { Text = "ryGT", AutoSize = true, BackColor = Color.Transparent, Font = new Font("Segoe UI Semibold", 22f), Margin = new Padding(0, 0, 0, 0) };
+            var subtitle = new Label
+            {
+                Text = "Gran Turismo Sport on Windows. Pick your own decrypted dump (CUSA03220), its 1.69 update, " +
+                       "your PS4 firmware's system modules and fonts; Set up converts the game, Play starts it.",
+                AutoSize = true, MaximumSize = new Size(760, 0), BackColor = Color.Transparent, Margin = new Padding(2, 0, 0, 12)
+            };
+            column.Controls.Add(title);
+            column.Controls.Add(subtitle);
 
-            AddOption(table, 5, "Show the game's splash screen while it starts", "General", "show_splash", false);
-            AddOption(table, 6, "Show an FPS counter", "General", "show_fps_counter", false);
-            AddOption(table, 7, "Show the game on Discord (Rich Presence)", "General", "discord_rpc_enabled", true);
+            // Game files.
+            var files = Section(column, "Game files");
+            var fileTable = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, Dock = DockStyle.Fill, BackColor = Color.Transparent };
+            fileTable.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            fileTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            fileTable.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            files.Controls.Add(fileTable);
+            game = AddRow(fileTable, 0, "Game (CUSA03220)", settings.Game);
+            update = AddRow(fileTable, 1, "Update 1.69 (if separate)", settings.Update);
+            modules = AddRow(fileTable, 2, "System modules", settings.Modules);
+            fonts = AddRow(fileTable, 3, "Fonts", settings.Fonts);
+
+            // Display and shaders on the left, graphics on the right.
+            var grid = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0) };
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            var left = new TableLayoutPanel { ColumnCount = 1, AutoSize = true, Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0, 0, 5, 0) };
+            var right = new TableLayoutPanel { ColumnCount = 1, AutoSize = true, Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(5, 0, 0, 0) };
+            left.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            grid.Controls.Add(left, 0, 0);
+            grid.Controls.Add(right, 1, 0);
+
+            var display = Section(left, "Display");
             // Borderless fullscreen on the window's display (shadGT's full_screen; "Fullscreen" as
             // full_screen_mode would switch the display mode instead).
-            AddOption(table, 8, "Start in fullscreen", "GPU", "full_screen", false);
-            AddOption(table, 9, "Sparks, tire smoke and other effects (about 8 fps slower in races)", "GPU", "particle_effects", true);
+            AddOption(display, "Start in fullscreen", "GPU", "full_screen", false);
+            AddOption(display, "Show an FPS counter", "General", "show_fps_counter", false);
+            AddOption(display, "Show the splash screen while the game starts", "General", "show_splash", false);
+            AddOption(display, "Show the game on Discord (Rich Presence)", "General", "discord_rpc_enabled", true);
+
+            // Graphics.
+            var graphics = Section(right, "Graphics");
+            // Sparks, tire smoke and other effects are always on; an older launcher could have
+            // turned them off in the config.
+            if (!ReadSetting("GPU", "particle_effects", true))
+            {
+                try { WriteSetting("GPU", "particle_effects", true); } catch { }
+            }
             // AMD FSR scales the game's 1920x1080 picture to the window or screen size: FSR 3.1 through
             // amd_fidelityfx_vk.dll (next to GTSport.exe, part of the release), or shadGT's FSR 1 pass.
-            var fsr = AddOption(table, 10, "Upscale with AMD FSR (window or screen larger than 1080p)", "GPU", "fsr_enabled", false);
+            var fsr = AddOption(graphics, "Upscale with AMD FSR (above 1080p)", "GPU", "fsr_enabled", false);
             bool fsr3Installed = File.Exists(Path.Combine(root, "amd_fidelityfx_vk.dll"));
-            var fsr3 = AddOption(table, 11, fsr3Installed
-                ? "Use FSR 3.1.4, the newest FSR for Vulkan (off: FSR 1)"
-                : "Use FSR 3.1.4 (needs amd_fidelityfx_vk.dll next to GTSport.exe)", "GPU", "fsr3_enabled", true);
-            var rcas = AddOption(table, 12, "FSR sharpening (RCAS)", "GPU", "rcas_enabled", true);
-            foreach (var sub in new[] { fsr3, rcas }) sub.Margin = new Padding(20, 4, 0, 0);
+            var fsr3 = AddOption(graphics, fsr3Installed
+                ? "Use FSR 3.1.4 (off: FSR 1)"
+                : "Use FSR 3.1.4 (needs amd_fidelityfx_vk.dll)", "GPU", "fsr3_enabled", true);
+            var rcas = AddOption(graphics, "FSR sharpening (RCAS)", "GPU", "rcas_enabled", true);
+            foreach (var sub in new[] { fsr3, rcas }) sub.Margin = new Padding(22, 2, 0, 2);
             fsr3.Enabled = fsr.Checked && fsr3Installed;
             rcas.Enabled = fsr.Checked;
             fsr.CheckedChanged += delegate { fsr3.Enabled = fsr.Checked && fsr3Installed; rcas.Enabled = fsr.Checked; };
@@ -361,44 +496,141 @@ namespace RyGT
             // nvngx_dlss.dll next to GTSport.exe. It is not part of the release, so the box stays grey without it.
             bool dlssInstalled = File.Exists(Path.Combine(root, "dlss", "ryGT_dlss.dll")) &&
                                  File.Exists(Path.Combine(root, "dlss", "nvngx_dlss.dll"));
-            var dlss = AddOption(table, 13, dlssInstalled
-                ? "Upscale with NVIDIA DLSS (RTX cards; used instead of FSR when it works)"
-                : "Upscale with NVIDIA DLSS (needs the DLSS plugin in the dlss folder)", "GPU", "dlss_enabled", false);
+            var dlss = AddOption(graphics, dlssInstalled
+                ? "Upscale with NVIDIA DLSS (RTX cards; instead of FSR)"
+                : "Upscale with NVIDIA DLSS (needs the DLSS plugin)", "GPU", "dlss_enabled", false);
             dlss.Enabled = dlssInstalled;
+            // AMD FSR 3.1 frame generation (amd_fidelityfx_vk.dll) shows a generated frame between
+            // each pair of game frames. Works on any GPU; independent of the upscaling choice.
+            var framegen = AddOption(graphics, fsr3Installed
+                ? "Frame generation (AMD FSR 3.1): about 2x the frames"
+                : "Frame generation (needs amd_fidelityfx_vk.dll)", "GPU", "framegen_enabled", false);
+            framegen.Enabled = fsr3Installed;
 
-            var buttons = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0, 8, 0, 8) };
+            // Shaders: the stored ones are built while the splash screen shows; a new one pauses
+            // the game until it is compiled (instead of a stutter and missing objects).
+            var shaders = Section(left, "Shaders");
+            AddOption(shaders, "Precompile shaders on the splash screen", "GPU", "precompile_shaders", true);
+            var freeze = AddOption(shaders, "Pause the game while new shaders compile", "GPU", "compile_freeze", true);
+            var batchRow = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(22, 4, 0, 2), WrapContents = false };
+            var batchLabel = new Label { Text = "Compile batching", AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0) };
+            // How long one pause may go on compiling the shaders of what comes next: longer pauses,
+            // fewer of them (GPU.compile_batch_ms).
+            var batch = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200, FlatStyle = FlatStyle.Flat };
+            var batchValues = new[] { 0, 100, 300, 1000 };
+            batch.Items.AddRange(new object[] { "Off (only what is needed)", "Short (up to 0.1 s)", "Medium (up to 0.3 s)", "Long (up to 1 s)" });
+            int current = ReadIntSetting("GPU", "compile_batch_ms", 0);
+            int index = Array.IndexOf(batchValues, current);
+            batch.SelectedIndex = index >= 0 ? index : 0;
+            batch.SelectedIndexChanged += delegate
+            {
+                try { WriteSetting("GPU", "compile_batch_ms", batchValues[batch.SelectedIndex]); }
+                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
+            };
+            batchRow.Controls.Add(batchLabel);
+            batchRow.Controls.Add(batch);
+            shaders.Controls.Add(batchRow);
+            batch.Enabled = freeze.Checked;
+            freeze.CheckedChanged += delegate { batch.Enabled = freeze.Checked; };
+
+            column.Controls.Add(grid);
+
+            // Actions and progress.
+            var buttons = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 10, 0, 4), WrapContents = false };
             setup = new Button { Text = "Set up", AutoSize = true };
-            play = new Button { Text = "Play", AutoSize = true, Tag = "accent" };
+            play = new Button { Text = "Play", AutoSize = true, Tag = "accent", Font = new Font("Segoe UI Semibold", 10f) };
             var open = new Button { Text = "Open folder", AutoSize = true };
             setup.Click += delegate { StartSetup(); };
             play.Click += delegate { Play(); };
             open.Click += delegate { Process.Start("explorer.exe", "\"" + root + "\""); };
-            buttons.Controls.AddRange(new Control[] { setup, play, open });
-            table.Controls.Add(buttons, 0, 14);
-            table.SetColumnSpan(buttons, 3);
+            buttons.Controls.AddRange(new Control[] { play, setup, open });
+            column.Controls.Add(buttons);
 
-            status = new Label { AutoSize = true, Margin = new Padding(0, 0, 0, 4) };
-            table.Controls.Add(status, 0, 15);
-            table.SetColumnSpan(status, 3);
+            status = new Label { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(2, 2, 0, 6) };
+            column.Controls.Add(status);
 
-            log = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, Font = new Font("Consolas", 9f) };
-            table.Controls.Add(log, 0, 16);
-            table.SetColumnSpan(log, 3);
-            table.RowCount = 17;
-            table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            for (int i = 1; i < 16; i++) table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            table.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            log = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Height = 110, Dock = DockStyle.Fill, Font = new Font("Consolas", 8.5f) };
+            column.Controls.Add(log);
+            foreach (Control control in column.Controls)
+            {
+                if (control != log) column.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            }
+            column.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             Dark.Apply(this);
-            intro.ForeColor = Dark.DimText;
+            subtitle.ForeColor = Dark.DimText;
+            title.ForeColor = Color.White;
             HandleCreated += delegate { Dark.TitleBar(this); };
             Shown += delegate { ActiveControl = play.Enabled ? (Control)play : setup; };
             RefreshState();
         }
 
+        readonly Image background;
+
+        Image LoadBackground()
+        {
+            foreach (var path in new[] { Path.Combine(root, "launcher", "background.png"), Path.Combine(root, "launcher", "background.jpg") })
+            {
+                try { if (File.Exists(path)) return Image.FromStream(new MemoryStream(File.ReadAllBytes(path))); }
+                catch { }
+            }
+            return null;
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            if (!PaintBackdrop(this, e.Graphics)) base.OnPaintBackground(e);
+        }
+
+        Bitmap backdrop;
+
+        /// The background picture as it lies under `control` (scaled to cover the window, anchored
+        /// right: the picture's subject is on its right). False without a picture.
+        public bool PaintBackdrop(Control control, Graphics g)
+        {
+            if (background == null) return false;
+            var client = ClientRectangle;
+            if (client.Width <= 0 || client.Height <= 0) return false;
+            if (backdrop == null || backdrop.Size != client.Size)
+            {
+                // Scaled once per window size; panels copy their part of it.
+                if (backdrop != null) backdrop.Dispose();
+                backdrop = new Bitmap(client.Width, client.Height);
+                using (var bg = Graphics.FromImage(backdrop))
+                {
+                    float scale = Math.Max(client.Width / (float)background.Width, client.Height / (float)background.Height);
+                    int width = (int)Math.Ceiling(background.Width * scale), height = (int)Math.Ceiling(background.Height * scale);
+                    bg.Clear(Dark.Back);
+                    bg.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                    bg.DrawImage(background, client.Right - width, (client.Height - height) / 2, width, height);
+                }
+            }
+            var offset = control == this ? Point.Empty : PointToClient(control.PointToScreen(Point.Empty));
+            g.DrawImage(backdrop, new Rectangle(-offset.X, -offset.Y, backdrop.Width, backdrop.Height));
+            return true;
+        }
+
+        /// A titled group on a translucent dark panel.
+        TableLayoutPanel Section(TableLayoutPanel parent, string heading)
+        {
+            var panel = new GlassPanel
+            {
+                ColumnCount = 1, AutoSize = true, Dock = DockStyle.Fill,
+                Padding = new Padding(12, 8, 12, 10), Margin = new Padding(0, 0, 0, 10)
+            };
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            panel.Controls.Add(new Label
+            {
+                Text = heading.ToUpperInvariant(), AutoSize = true, BackColor = Color.Transparent,
+                Font = new Font("Segoe UI Semibold", 8.5f), ForeColor = Dark.Heading, Margin = new Padding(0, 0, 0, 4), Tag = "heading"
+            });
+            parent.Controls.Add(panel);
+            return panel;
+        }
+
         TextBox AddRow(TableLayoutPanel table, int row, string label, string value)
         {
-            table.Controls.Add(new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 8, 0) }, 0, row);
+            table.Controls.Add(new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Left, BackColor = Color.Transparent, Margin = new Padding(0, 6, 10, 0) }, 0, row);
             var box = new TextBox { Text = value, Dock = DockStyle.Fill };
             table.Controls.Add(box, 1, row);
             var browse = new Button { Text = "Browse...", AutoSize = true };
@@ -418,7 +650,8 @@ namespace RyGT
         string ConfigPath { get { return Path.Combine(root, "user", "custom_configs", "CUSA03220.json"); } }
 
         /// A shadGT setting in a section of the GT Sport config (General: show_splash,
-        /// show_fps_counter, discord_rpc_enabled; GPU: full_screen, particle_effects, fsr_enabled, fsr3_enabled, rcas_enabled, dlss_enabled).
+        /// show_fps_counter, discord_rpc_enabled; GPU: full_screen, particle_effects, fsr_enabled, fsr3_enabled, rcas_enabled, dlss_enabled,
+        /// framegen_enabled, precompile_shaders, compile_freeze).
         bool ReadSetting(string sectionName, string key, bool fallback)
         {
             try
@@ -432,7 +665,20 @@ namespace RyGT
             return fallback;
         }
 
-        void WriteSetting(string sectionName, string key, bool on)
+        int ReadIntSetting(string sectionName, string key, int fallback)
+        {
+            try
+            {
+                var config = LoadConfig();
+                object found, value;
+                var section = config.TryGetValue(sectionName, out found) ? found as Dictionary<string, object> : null;
+                if (section != null && section.TryGetValue(key, out value) && value is int) return (int)value;
+            }
+            catch { }
+            return fallback;
+        }
+
+        void WriteSetting(string sectionName, string key, object on)
         {
             var config = LoadConfig();
             object found;
@@ -444,16 +690,15 @@ namespace RyGT
                               new UTF8Encoding(false));
         }
 
-        CheckBox AddOption(TableLayoutPanel table, int row, string text, string sectionName, string key, bool fallback)
+        CheckBox AddOption(TableLayoutPanel panel, string text, string sectionName, string key, bool fallback)
         {
-            var box = new CheckBox { Text = text, AutoSize = true, Checked = ReadSetting(sectionName, key, fallback), Margin = new Padding(0, 4, 0, 0) };
+            var box = new DarkCheckBox { Text = text, AutoSize = true, Checked = ReadSetting(sectionName, key, fallback), Margin = new Padding(0, 2, 0, 2) };
             box.CheckedChanged += delegate
             {
                 try { WriteSetting(sectionName, key, box.Checked); }
                 catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
             };
-            table.Controls.Add(box, 0, row);
-            table.SetColumnSpan(box, 3);
+            panel.Controls.Add(box);
             return box;
         }
 
