@@ -9,6 +9,7 @@ after shadGT commit `29af7ca6` are kept here as patches, in order:
 | `0001-ryGT-frame-generation-...` | AMD FSR 3.1.4 frame generation, shader precompile on the splash screen (with a progress bar), pausing the game while new shaders compile, compile batching, efficiency-core shader compiles, opt-in diagnostics |
 | `0002-ryGT-splash-screen-shows-...` | Hotfix: the splash screen and progress bar show while the game waits for the precompile (it was a black screen) |
 | `0003-ryGT-Lewis-Hamilton-Time-Trial-...` | GTS-002: unlocks the Lewis Hamilton Time Trial Challenge in the Campaign menu (the add-on's unlock flags came from the shut-down servers); `RYGT_LEWIS=0` turns it off |
+| `0004-ryGT-Livery-Editor-offline-GTS-003` | GTS-003: enables the Livery button on the main menu while offline (the menu script greyed it out without the servers; the editor has its own offline mode that saves liveries locally); `RYGT_LIVERY=0` turns it off |
 
 To build: check out shadGT at `29af7ca6`, apply the patches with
 `git am <RyGT>/renderer/shadGT-patches/*.patch`, then build the `ryty_gpu` target as in the main
