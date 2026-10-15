@@ -35,7 +35,6 @@ Known issues:
 - The first 30 seconds of a race can stutter while graphics pipelines compile.
 - A few draws in the race summary can occasionally read garbage vertex descriptors; those draws
   are skipped.
-- Pink issues during dirt race.
 
 Tested on Windows 11 with an Intel i7-13700KF and an RTX 4070Ti.
 Tested on Windows 11 with an AMD Ryzen 5 9600X and an RTX 3060 12GB
