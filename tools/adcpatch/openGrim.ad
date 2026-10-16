@@ -2,7 +2,8 @@
 // Livery Editor's upload. GT Sport's servers are gone; the editor already writes the livery set
 // files (in callback_prepare, inside this progress dialog), and after the "upload" the caller copies
 // them into the livery cache under the returned id, which the garage loads from. Offline, the upload
-// request is skipped and the id is a local one (seconds since 1970).
+// request is skipped and the id is a local one: the clock in seconds (not the time since the game
+// started, which repeats and would overwrite an earlier livery in the cache).
 #undef DIALOG_ERROR
 
 module ProgressRoot
@@ -45,7 +46,7 @@ module ProgressRoot
 
         if (isOffline() && self.command == "Grim::requestLiveryUpload")
         {
-            self.callback_result = pdistd::GetSystemTimeMilliSecond() / 1000;
+            self.callback_result = pdiext::getBetterTime().getBySecond();
             return true;
         }
 

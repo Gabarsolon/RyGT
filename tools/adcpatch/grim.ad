@@ -31,3 +31,20 @@ module GrimDecal
         return nil;
     }
 }
+
+// GrimLivery's ban checks (livery.test) ask GT Sport's servers before the garage loads a livery
+// from the livery cache; offline the request never finishes and the garage keeps loading. No
+// livery is banned offline.
+module GrimLivery
+{
+    function liveryTest(args0)
+    {
+        |var livery_id| = args0;
+        return Promise::resolve([livery_id, true]);
+    }
+
+    function requestLiveryTest(liveries)
+    {
+        return Promise::resolve([]);
+    }
+}

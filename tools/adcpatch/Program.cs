@@ -372,23 +372,35 @@ else if (mode == "gallery")
 }
 else if (mode == "grim")
 {
-    // GrimDecal.requestDecalList: the decal list comes from local SVG files (see grim.ad).
+    // From grim.ad: GrimDecal.requestDecalList (the decal list comes from local SVG files) and
+    // GrimLivery's ban checks (no server to ask; the garage loads liveries without them).
     var file = Load(args[1], out var map);
     var compiled = Compile(args[3]);
-    var replacement = Subroutines(compiled.Instructions).Select(x => x.sub).Single(x => x is InsFunctionDefine f && f.Name.Name == "requestDecalList");
     var top = file.TopLevelFrame.Instructions;
-    int mod = top.FindIndex(x => x is InsModuleDefine m && m.Path[^1].Name == "GrimDecal");
-    int index = top.FindIndex(mod, x => x is InsFunctionDefine f && f.Name.Name == "requestDecalList");
-    if (mod < 0 || index < 0) throw new Exception("GrimDecal.requestDecalList not found");
-    RegisterSymbols(replacement, map, new HashSet<object>(ReferenceEqualityComparer.Instance));
-    replacement.LineNumber = top[index].LineNumber;
-    top[index] = replacement;
-    Console.WriteLine("replaced GrimDecal.requestDecalList");
-    // room for it: GrimDecal's own debug asserts and logs
-    int nextModule = top.FindIndex(mod + 1, x => x is InsModuleDefine);
+    var jobs = new[] { ("GrimDecal", "requestDecalList"), ("GrimLivery", "liveryTest"), ("GrimLivery", "requestLiveryTest") };
+    var modules = new HashSet<string>();
+    foreach (var (module, name) in jobs)
+    {
+        var replacement = Subroutines(compiled.Instructions).Select(x => x.sub).Single(x => x is InsFunctionDefine f && f.Name.Name == name);
+        int mod = top.FindIndex(x => x is InsModuleDefine m && m.Path[^1].Name == module);
+        int index = mod < 0 ? -1 : top.FindIndex(mod, x => x is InsFunctionDefine f && f.Name.Name == name);
+        if (index < 0) throw new Exception($"{module}.{name} not found");
+        RegisterSymbols(replacement, map, new HashSet<object>(ReferenceEqualityComparer.Instance));
+        replacement.LineNumber = top[index].LineNumber;
+        top[index] = replacement;
+        modules.Add(module);
+        Console.WriteLine($"replaced {module}.{name}");
+    }
+    // room for them: GrimDecal's own debug asserts and logs (GrimLivery's replacements are smaller
+    // than the originals)
     int stripped = 0;
-    foreach (var (_, _, sub) in Subroutines(top.GetRange(mod, (nextModule < 0 ? top.Count : nextModule) - mod)).ToList())
-        stripped += StripDebug(sub.CodeFrame.Instructions);
+    foreach (var module in new[] { "GrimDecal" })
+    {
+        int mod = top.FindIndex(x => x is InsModuleDefine m && m.Path[^1].Name == module);
+        int nextModule = top.FindIndex(mod + 1, x => x is InsModuleDefine);
+        foreach (var (_, _, sub) in Subroutines(top.GetRange(mod, (nextModule < 0 ? top.Count : nextModule) - mod)).ToList())
+            stripped += StripDebug(sub.CodeFrame.Instructions);
+    }
     Console.WriteLine($"debug asserts/logs removed: {stripped}");
     PruneSymbols(file, map);
     Save(file, map, args[1], args[2]);
