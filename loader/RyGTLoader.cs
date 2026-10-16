@@ -506,6 +506,10 @@ namespace RyGT
                 ? "Frame generation (AMD FSR 3.1): about 2x the frames"
                 : "Frame generation (needs amd_fidelityfx_vk.dll)", "GPU", "framegen_enabled", false);
             framegen.Enabled = fsr3Installed;
+            // GTS-007: in the rain the game renders the scene a second time for the wet track's
+            // reflection (about a quarter of a rainy frame's draws). Off: about +30% fps in rain.
+            AddOption(graphics, "Wet-road reflections in the rain (off: much faster in rain)", "GPU",
+                      "wet_reflections", true);
 
             // Shaders: the stored ones are built while the splash screen shows; a new one pauses
             // the game until it is compiled (instead of a stutter and missing objects).
