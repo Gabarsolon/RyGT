@@ -471,6 +471,7 @@ namespace RyGT
             AddOption(display, "Show an FPS counter", "General", "show_fps_counter", false);
             AddOption(display, "Show the splash screen while the game starts", "General", "show_splash", false);
             AddOption(display, "Show the game on Discord (Rich Presence)", "General", "discord_rpc_enabled", true);
+            AddMemorySetting(display);
 
             // Graphics.
             var graphics = Section(right, "Graphics");
@@ -516,7 +517,6 @@ namespace RyGT
             // The direct renderer (shaders read game memory in place; Tokyo rain 42.7 fps vs 32.1)
             // is the only renderer since 2026-10-16; the old renderer's stored shaders stand in
             // while its own are built (D10), so it has no option any more.
-            AddQualityPreset(graphics, fsr, framegen, wet, mirror);
 
             // Shaders: the stored ones are built while the splash screen shows; a new one pauses
             // the game until it is compiled (instead of a stutter and missing objects).
@@ -714,50 +714,63 @@ namespace RyGT
                               new UTF8Encoding(false));
         }
 
-        // Quality preset (GPU.quality_preset): sets the boxes below it and the memory settings the
-        // launcher does not show (the driver's pipeline cache file, which grows past 1 GB and is
-        // loaded whole; the pool of reused GPU images). A changed box makes it "Custom".
-        //   Low:          reflections off, mirror half rate, no driver cache, 128 MB pool
-        //   Medium:       reflections off, no driver cache, 256 MB pool
-        //   High:         everything on, driver cache, 512 MB pool
-        //   Original PS4: as High, without upscaling or frame generation (the console's picture)
-        // Tokyo rain race, committed memory: driver cache on ~11 GB average / 13.5 GB peak, off ~9.2 / 9.7.
-        void AddQualityPreset(TableLayoutPanel graphics, CheckBox fsr, CheckBox framegen, CheckBox wet, CheckBox mirror)
+        [StructLayout(LayoutKind.Sequential)]
+        struct MemoryStatusEx
         {
-            var row = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 6), WrapContents = false };
-            var label = new Label { Text = "Quality preset", AutoSize = false, Width = 110, Height = 20, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0) };
-            var preset = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, FlatStyle = FlatStyle.Flat };
-            preset.Items.AddRange(new object[] { "Custom", "Low (least memory)", "Medium", "High", "Original PS4" });
-            preset.SelectedIndex = Math.Max(0, Math.Min(4, ReadIntSetting("GPU", "quality_preset", 0)));
-            bool applying = false;
-            preset.SelectedIndexChanged += delegate
+            public uint Length;
+            public uint MemoryLoad;
+            public ulong TotalPhys;
+            public ulong AvailPhys;
+            public ulong TotalPageFile;
+            public ulong AvailPageFile;
+            public ulong TotalVirtual;
+            public ulong AvailVirtual;
+            public ulong AvailExtendedVirtual;
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool GlobalMemoryStatusEx(ref MemoryStatusEx status);
+
+        static int InstalledRamGb()
+        {
+            var status = new MemoryStatusEx { Length = (uint)Marshal.SizeOf(typeof(MemoryStatusEx)) };
+            if (!GlobalMemoryStatusEx(ref status)) return 32;
+            return (int)Math.Round(status.TotalPhys / (1024.0 * 1024 * 1024));
+        }
+
+        // System memory (GPU.system_ram_gb): how much the game may use for things it can do
+        // without. With 16 GB the driver's pipeline cache file (it grows past 1 GB and is loaded
+        // whole, then copied again when saved) is off and fewer freed GPU images are kept for
+        // reuse. Tokyo rain race, committed memory: 32 GB setting ~11 GB average / 13.5 GB peak,
+        // 16 GB setting ~8.6 / 9.0 GB. Picked from the installed RAM the first time.
+        void AddMemorySetting(TableLayoutPanel panel)
+        {
+            var row = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 4, 0, 2), WrapContents = false };
+            var label = new Label { Text = "System memory (RAM)", AutoSize = false, Width = 196, Height = 20, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0) };
+            var ram = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160, FlatStyle = FlatStyle.Flat };
+            ram.Items.AddRange(new object[] { "16 GB (minimum)", "32 GB+ (recommended)" });
+            int stored = ReadIntSetting("GPU", "system_ram_gb", 0);
+            int gb = stored > 0 ? stored : InstalledRamGb();
+            ram.SelectedIndex = gb >= 24 ? 1 : 0;
+            Action apply = delegate
             {
-                int p = preset.SelectedIndex;
-                try
-                {
-                    WriteSetting("GPU", "quality_preset", p);
-                    if (p == 0) return;
-                    applying = true;
-                    wet.Checked = p >= 3;
-                    mirror.Checked = p == 1;
-                    if (p == 4) { fsr.Checked = false; framegen.Checked = false; }
-                    WriteSetting("Vulkan", "pipeline_cache_enabled", p >= 3);
-                    WriteSetting("GPU", "image_recycle_mb", p == 1 ? 128 : p == 2 ? 256 : 512);
-                }
-                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
-                finally { applying = false; }
+                bool large = ram.SelectedIndex == 1;
+                WriteSetting("GPU", "system_ram_gb", large ? 32 : 16);
+                WriteSetting("Vulkan", "pipeline_cache_enabled", large);
+                WriteSetting("GPU", "image_recycle_mb", large ? 512 : 128);
             };
-            foreach (var box in new[] { fsr, framegen, wet, mirror })
+            if (stored == 0)
             {
-                box.CheckedChanged += delegate
-                {
-                    if (!applying && preset.SelectedIndex != 0) preset.SelectedIndex = 0;
-                };
+                try { apply(); } catch { }
             }
+            ram.SelectedIndexChanged += delegate
+            {
+                try { apply(); }
+                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
+            };
             row.Controls.Add(label);
-            row.Controls.Add(preset);
-            graphics.Controls.Add(row);
-            graphics.Controls.SetChildIndex(row, 1); // under the section title
+            row.Controls.Add(ram);
+            panel.Controls.Add(row);
         }
 
         CheckBox AddOption(TableLayoutPanel panel, string text, string sectionName, string key, bool fallback)
