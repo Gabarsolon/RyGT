@@ -510,6 +510,9 @@ namespace RyGT
             // reflection (about a quarter of a rainy frame's draws). Off: about +30% fps in rain.
             AddOption(graphics, "Wet-road reflections in the rain (off: much faster in rain)", "GPU",
                       "wet_reflections", true);
+            // GTS-008: the rear-view mirror is redrawn every second frame (its picture is kept).
+            AddOption(graphics, "Rear-view mirror at half rate (a little faster)", "GPU",
+                      "mirror_half_rate", false);
 
             // Shaders: the stored ones are built while the splash screen shows; a new one pauses
             // the game until it is compiled (instead of a stutter and missing objects).
