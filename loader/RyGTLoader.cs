@@ -934,7 +934,61 @@ namespace RyGT
             CopyDirectory(fontDir, Path.Combine(root, "sys", "common", "font"));
             CopyDirectory(font2Dir, Path.Combine(root, "sys", "common", "font2"));
 
+            // 5. Offline livery and decal scripts, made from this game's own files.
+            SetStatus("Making the offline livery scripts from your game files...");
+            if (!BuildGameScripts(baseDir, updateDir))
+                Log("Note: the offline livery scripts could not be made; liveries will not apply offline.");
+
             Log("Set up finished.");
+        }
+
+        // The game scripts GTS-005 serves from patches\scripts: offline livery apply (UI_KIT, LIVERY2,
+        // THUMBNAIL) and the decals folder (GALLERY, GRIM). They are made from Polyphony's scripts, so
+        // they are not shipped: tools\adcpatch\adcpatch.exe reads them from the player's own game
+        // volumes (GTToolsSharp) and patches them (GTAdhocToolchain), both by Nenkai, MIT licensed.
+        static readonly string[] GameScripts = { "UI_KIT.ADC", "LIVERY2.ADC", "THUMBNAIL.ADC", "GALLERY.ADC", "GRIM.ADC" };
+
+        bool GameScriptsMissing()
+        {
+            string dir = Path.Combine(root, "patches", "scripts");
+            return GameScripts.Any(name => !File.Exists(Path.Combine(dir, name)));
+        }
+
+        bool BuildGameScripts(string baseDir, string updateDir)
+        {
+            string tool = Path.Combine(root, "tools", "adcpatch", "adcpatch.exe");
+            if (!File.Exists(tool)) { Log("tools\\adcpatch\\adcpatch.exe is missing."); return false; }
+            string output = Path.Combine(root, "patches", "scripts");
+            Func<string, string> arg = d => "\"" + (d ?? "").TrimEnd('\\') + "\"";
+            string arguments = "all " + arg(baseDir) + " " + arg(updateDir) + " " + arg(output);
+            Log("> adcpatch.exe " + arguments);
+            var info = new ProcessStartInfo(tool, arguments)
+            {
+                WorkingDirectory = Path.GetDirectoryName(tool), UseShellExecute = false, CreateNoWindow = true,
+                RedirectStandardOutput = true, RedirectStandardError = true
+            };
+            var lines = new List<string>();
+            using (var process = new Process { StartInfo = info })
+            {
+                DataReceivedEventHandler collect = delegate (object sender, DataReceivedEventArgs e)
+                {
+                    if (e.Data == null) return;
+                    lock (lines) lines.Add(e.Data);
+                    if (e.Data.StartsWith("[OK]") || e.Data.StartsWith("[X]") || e.Data.Contains(" scripts patched"))
+                        Log(e.Data);
+                };
+                process.OutputDataReceived += collect;
+                process.ErrorDataReceived += collect;
+                process.Start();
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+                process.WaitForExit();
+                lock (lines)
+                {
+                    try { File.WriteAllLines(Path.Combine(Path.GetDirectoryName(tool), "adcpatch.log"), lines); } catch { }
+                }
+                return process.ExitCode == 0 && !GameScriptsMissing();
+            }
         }
 
         static string ReadAppVersion(string sfo)
@@ -1082,6 +1136,17 @@ namespace RyGT
         void Play()
         {
             if (!File.Exists(Exe)) { MessageBox.Show(this, "Press Set up first."); return; }
+            // Folders set up by an earlier RyGT.exe get the offline livery scripts now (a few seconds).
+            if (GameScriptsMissing() && Directory.Exists(settings.Game))
+            {
+                status.Text = "Making the offline livery scripts from your game files...";
+                Refresh();
+                try
+                {
+                    BuildGameScripts(settings.Game, settings.Update.Length > 0 && Directory.Exists(settings.Update) ? settings.Update : null);
+                }
+                catch (Exception e) { Log("Offline livery scripts: " + e.Message); }
+            }
             StartGame(root);
             status.Text = "GT Sport is starting. Logs: stdout.log and stderr.log in the RyGT folder.";
         }
