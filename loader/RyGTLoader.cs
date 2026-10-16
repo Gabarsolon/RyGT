@@ -513,11 +513,9 @@ namespace RyGT
             // GTS-008: the rear-view mirror is redrawn every second frame (its picture is kept).
             var mirror = AddOption(graphics, "Rear-view mirror at half rate (a little faster)", "GPU",
                                    "mirror_half_rate", false);
-            // D1-D7: shaders read game memory in place instead of copying it each frame
-            // (Tokyo rain, 3 races each: 42.7 fps vs 32.1). Its shaders are stored separately,
-            // so the first races after turning it on compile shaders.
-            AddOption(graphics, "New renderer (much faster; experimental)",
-                      "GPU", "direct_renderer", false);
+            // The direct renderer (shaders read game memory in place; Tokyo rain 42.7 fps vs 32.1)
+            // is the only renderer since 2026-10-16; the old renderer's stored shaders stand in
+            // while its own are built (D10), so it has no option any more.
             AddQualityPreset(graphics, fsr, framegen, wet, mirror);
 
             // Shaders: the stored ones are built while the splash screen shows; a new one pauses
