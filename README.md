@@ -97,6 +97,9 @@ and image tracking).
 - `main`: stable builds; releases come from here.
 - `development`: ongoing work. Changes reach `main` once they are tested.
 
+# Discord Server
+Join our server for more updates: https://discord.gg/8dz4U9Nd8d
+
 ## Documentation
 
 - [GT Sport setup](docs/gt-sport/README.md)
