@@ -114,6 +114,11 @@ Join our server for more updates: https://discord.gg/8dz4U9Nd8d
   contributors: the converter, the system library implementations and the test infrastructure.
 - [shadPS4](https://github.com/shadps4-emu/shadPS4) and its contributors, through shadGT: the
   renderer, shader recompiler and HLE libraries.
+- [Nenkai](https://github.com/Nenkai): [GTToolsSharp](https://github.com/Nenkai/GTToolsSharp)
+  (reading the game's volumes) and [GTAdhocToolchain](https://github.com/Nenkai/GTAdhocToolchain)
+  (the AdHoc script compiler and disassembler), both MIT licensed. The launcher uses them to build
+  the offline livery and decal scripts from your own game files, and Nenkai's research into
+  Gran Turismo's formats and scripts made that work possible.
 - See [AUTHORS.md](AUTHORS.md).
 
 ## Disclaimer
