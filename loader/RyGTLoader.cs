@@ -954,6 +954,25 @@ namespace RyGT
             return GameScripts.Any(name => !File.Exists(Path.Combine(dir, name)));
         }
 
+        // Missing, or made by another toolsdcpatch (a newer build ships a newer one): the scripts
+        // folder keeps a hash of the adcpatch.exe that made it.
+        bool GameScriptsOutdated()
+        {
+            if (GameScriptsMissing()) return true;
+            string tool = Path.Combine(root, "tools", "adcpatch", "adcpatch.exe");
+            if (!File.Exists(tool)) return false;
+            string stamp = Path.Combine(root, "patches", "scripts", "made-by.txt");
+            try { return !File.Exists(stamp) || File.ReadAllText(stamp).Trim() != ToolHash(tool); }
+            catch { return true; }
+        }
+
+        static string ToolHash(string tool)
+        {
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+            using (var stream = File.OpenRead(tool))
+                return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "");
+        }
+
         bool BuildGameScripts(string baseDir, string updateDir)
         {
             string tool = Path.Combine(root, "tools", "adcpatch", "adcpatch.exe");
@@ -987,7 +1006,12 @@ namespace RyGT
                 {
                     try { File.WriteAllLines(Path.Combine(Path.GetDirectoryName(tool), "adcpatch.log"), lines); } catch { }
                 }
-                return process.ExitCode == 0 && !GameScriptsMissing();
+                bool ok = process.ExitCode == 0 && !GameScriptsMissing();
+                if (ok)
+                {
+                    try { File.WriteAllText(Path.Combine(output, "made-by.txt"), ToolHash(tool)); } catch { }
+                }
+                return ok;
             }
         }
 
@@ -1136,8 +1160,9 @@ namespace RyGT
         void Play()
         {
             if (!File.Exists(Exe)) { MessageBox.Show(this, "Press Set up first."); return; }
-            // Folders set up by an earlier RyGT.exe get the offline livery scripts now (a few seconds).
-            if (GameScriptsMissing() && Directory.Exists(settings.Game))
+            // Folders set up by an earlier RyGT.exe or adcpatch get the offline livery scripts (again)
+            // now (a few seconds).
+            if (GameScriptsOutdated() && Directory.Exists(settings.Game))
             {
                 status.Text = "Making the offline livery scripts from your game files...";
                 Refresh();
