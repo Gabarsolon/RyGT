@@ -508,16 +508,17 @@ namespace RyGT
             framegen.Enabled = fsr3Installed;
             // GTS-007: in the rain the game renders the scene a second time for the wet track's
             // reflection (about a quarter of a rainy frame's draws). Off: about +30% fps in rain.
-            AddOption(graphics, "Wet-road reflections in the rain (off: much faster in rain)", "GPU",
-                      "wet_reflections", true);
+            var wet = AddOption(graphics, "Wet-road reflections in the rain (off: much faster in rain)", "GPU",
+                                "wet_reflections", true);
             // GTS-008: the rear-view mirror is redrawn every second frame (its picture is kept).
-            AddOption(graphics, "Rear-view mirror at half rate (a little faster)", "GPU",
-                      "mirror_half_rate", false);
+            var mirror = AddOption(graphics, "Rear-view mirror at half rate (a little faster)", "GPU",
+                                   "mirror_half_rate", false);
             // D1-D7: shaders read game memory in place instead of copying it each frame
             // (Tokyo rain, 3 races each: 42.7 fps vs 32.1). Its shaders are stored separately,
             // so the first races after turning it on compile shaders.
             AddOption(graphics, "New renderer (much faster; experimental)",
                       "GPU", "direct_renderer", false);
+            AddQualityPreset(graphics, fsr, framegen, wet, mirror);
 
             // Shaders: the stored ones are built while the splash screen shows; a new one pauses
             // the game until it is compiled (instead of a stutter and missing objects).
@@ -713,6 +714,52 @@ namespace RyGT
             Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath));
             File.WriteAllText(ConfigPath, new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(config),
                               new UTF8Encoding(false));
+        }
+
+        // Quality preset (GPU.quality_preset): sets the boxes below it and the memory settings the
+        // launcher does not show (the driver's pipeline cache file, which grows past 1 GB and is
+        // loaded whole; the pool of reused GPU images). A changed box makes it "Custom".
+        //   Low:          reflections off, mirror half rate, no driver cache, 128 MB pool
+        //   Medium:       reflections off, no driver cache, 256 MB pool
+        //   High:         everything on, driver cache, 512 MB pool
+        //   Original PS4: as High, without upscaling or frame generation (the console's picture)
+        // Tokyo rain race, committed memory: driver cache on ~11 GB average / 13.5 GB peak, off ~9.2 / 9.7.
+        void AddQualityPreset(TableLayoutPanel graphics, CheckBox fsr, CheckBox framegen, CheckBox wet, CheckBox mirror)
+        {
+            var row = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 6), WrapContents = false };
+            var label = new Label { Text = "Quality preset", AutoSize = false, Width = 110, Height = 20, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0) };
+            var preset = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, FlatStyle = FlatStyle.Flat };
+            preset.Items.AddRange(new object[] { "Custom", "Low (least memory)", "Medium", "High", "Original PS4" });
+            preset.SelectedIndex = Math.Max(0, Math.Min(4, ReadIntSetting("GPU", "quality_preset", 0)));
+            bool applying = false;
+            preset.SelectedIndexChanged += delegate
+            {
+                int p = preset.SelectedIndex;
+                try
+                {
+                    WriteSetting("GPU", "quality_preset", p);
+                    if (p == 0) return;
+                    applying = true;
+                    wet.Checked = p >= 3;
+                    mirror.Checked = p == 1;
+                    if (p == 4) { fsr.Checked = false; framegen.Checked = false; }
+                    WriteSetting("Vulkan", "pipeline_cache_enabled", p >= 3);
+                    WriteSetting("GPU", "image_recycle_mb", p == 1 ? 128 : p == 2 ? 256 : 512);
+                }
+                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
+                finally { applying = false; }
+            };
+            foreach (var box in new[] { fsr, framegen, wet, mirror })
+            {
+                box.CheckedChanged += delegate
+                {
+                    if (!applying && preset.SelectedIndex != 0) preset.SelectedIndex = 0;
+                };
+            }
+            row.Controls.Add(label);
+            row.Controls.Add(preset);
+            graphics.Controls.Add(row);
+            graphics.Controls.SetChildIndex(row, 1); // under the section title
         }
 
         CheckBox AddOption(TableLayoutPanel panel, string text, string sectionName, string key, bool fallback)

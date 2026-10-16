@@ -3,7 +3,7 @@
 The renderer (`libSceVideoOut.prx`) is built from
 [shadGT, branch `ryty-gpu`](https://github.com/mlgprorektm8/shadGT/tree/ryty-gpu). Changes made
 after shadGT commit `29af7ca6` are kept here as patches, in order (the branch itself includes all of them from
-commit `4afc4f92`):
+commit `e9cc3464`):
 
 | Patch | What it adds |
 |---|---|
@@ -17,6 +17,7 @@ commit `4afc4f92`):
 | `0008-ryGT-direct-memory-renderer-2026-10-16` | The new renderer (launcher option "New renderer", `GPU.direct_renderer`, or `SHADGT_DIRECT=1`): shaders read game memory in place through a GPU page table over imported guest memory instead of copying buffers every draw (Tokyo rain benchmark about 32 -> 43 fps); freed render targets are reused instead of rebuilt (all modes); wet-road reflection (GTS-007) and half-rate mirror (GTS-008) toggles; texture-binding shortcuts; import prototype, ceiling and timing diagnostics |
 | `0009-ryGT-buffer-stage-with-direct-renderer` | With the new renderer, a helper thread fetches the remaining (copied) buffers ahead of the draw recorder (about +1.5 fps in the Tokyo rain benchmark) |
 | `0010-ryGT-framegen-compile-freeze-fix` | Frame generation pauses while new shaders compile (with it on, heavy compiling could freeze the game in the driver); timing switches for the command thread and pipeline selection |
+| `0011-ryGT-quality-preset-memory` | The reused-image pool size follows the launcher's quality preset (`GPU.image_recycle_mb`) |
 
 To build: check out shadGT at `29af7ca6`, apply the patches with
 `git am <RyGT>/renderer/shadGT-patches/*.patch`, then build the `ryty_gpu` target as in the main
