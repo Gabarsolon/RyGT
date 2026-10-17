@@ -939,6 +939,14 @@ namespace RyGT
             if (!BuildGameScripts(baseDir, updateDir))
                 Log("Note: the offline livery scripts could not be made; liveries will not apply offline.");
 
+            // 6. Shaders other players have met, prepared from this game's own files.
+            if (File.Exists(ShaderPack))
+            {
+                SetStatus("Preparing shaders from your game files (a few minutes)...");
+                if (!PrepareShaders(baseDir, updateDir))
+                    Log("Note: the shaders could not be prepared; they will compile while you play.");
+            }
+
             Log("Set up finished.");
         }
 
@@ -1012,6 +1020,60 @@ namespace RyGT
                     try { File.WriteAllText(Path.Combine(output, "made-by.txt"), ToolHash(tool)); } catch { }
                 }
                 return ok;
+            }
+        }
+
+        // Shader pre-build: tools\adcpatch\shaders.pack holds the settings of the shaders and
+        // pipelines RyGT's players have met (no shader code). shaderprep writes them into the
+        // shader cache and copies each shader's program out of this PC's game files; the renderer
+        // translates them on the splash screen and builds the pipelines there, so they don't
+        // pause the game the first time a car or track shows up.
+        string ShaderPack { get { return Path.Combine(root, "tools", "adcpatch", "shaders.pack"); } }
+        string ShaderPackStamp { get { return Path.Combine(root, "user", "cache", "shaders-pack.txt"); } }
+
+        bool ShadersOutdated()
+        {
+            if (!File.Exists(ShaderPack)) return false;
+            try { return !File.Exists(ShaderPackStamp) || File.ReadAllText(ShaderPackStamp).Trim() != ToolHash(ShaderPack); }
+            catch { return true; }
+        }
+
+        bool PrepareShaders(string baseDir, string updateDir)
+        {
+            string tool = Path.Combine(root, "tools", "adcpatch", "adcpatch.exe");
+            if (!File.Exists(tool) || !File.Exists(ShaderPack)) return false;
+            string cache = Path.Combine(root, "user", "cache");
+            Directory.CreateDirectory(cache);
+            Func<string, string> arg = d => "\"" + (d ?? "").TrimEnd('\\') + "\"";
+            string arguments = "shaderprep " + arg(baseDir) + " " + arg(updateDir) + " " + arg(ShaderPack) + " " + arg(cache);
+            Log("> adcpatch.exe " + arguments);
+            var info = new ProcessStartInfo(tool, arguments)
+            {
+                WorkingDirectory = Path.GetDirectoryName(tool), UseShellExecute = false, CreateNoWindow = true,
+                RedirectStandardOutput = true, RedirectStandardError = true
+            };
+            var lines = new List<string>();
+            using (var process = new Process { StartInfo = info })
+            {
+                DataReceivedEventHandler collect = delegate (object sender, DataReceivedEventArgs e)
+                {
+                    if (e.Data == null) return;
+                    lock (lines) lines.Add(e.Data);
+                    if (e.Data.Contains(" programs copied")) Log(e.Data);
+                };
+                process.OutputDataReceived += collect;
+                process.ErrorDataReceived += collect;
+                process.Start();
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+                process.WaitForExit();
+                lock (lines)
+                {
+                    try { File.WriteAllLines(Path.Combine(Path.GetDirectoryName(tool), "shaderprep.log"), lines); } catch { }
+                }
+                if (process.ExitCode != 0) return false;
+                try { File.WriteAllText(ShaderPackStamp, ToolHash(ShaderPack)); } catch { }
+                return true;
             }
         }
 
@@ -1171,6 +1233,17 @@ namespace RyGT
                     BuildGameScripts(settings.Game, settings.Update.Length > 0 && Directory.Exists(settings.Update) ? settings.Update : null);
                 }
                 catch (Exception e) { Log("Offline livery scripts: " + e.Message); }
+            }
+            // A newer shaders.pack (or a folder set up before it existed): prepared once now.
+            if (ShadersOutdated() && Directory.Exists(settings.Game))
+            {
+                status.Text = "Preparing shaders from your game files (a few minutes, once)...";
+                Refresh();
+                try
+                {
+                    PrepareShaders(settings.Game, settings.Update.Length > 0 && Directory.Exists(settings.Update) ? settings.Update : null);
+                }
+                catch (Exception e) { Log("Shaders: " + e.Message); }
             }
             StartGame(root);
             status.Text = "GT Sport is starting. Logs: stdout.log and stderr.log in the RyGT folder.";
