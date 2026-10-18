@@ -21,10 +21,12 @@ namespace {
 constexpr std::uintptr_t PreferredBase = 0x0000000200000000ull;
 constexpr std::uintptr_t SystemReservedStart = 0x00000007FFFFC000ull;
 constexpr std::uintptr_t SystemReservedEnd = 0x0000001000000000ull;
-constexpr std::size_t StartupMapBytes = 0x0000000400000000ull; // 16 GiB above the system range.
+constexpr std::uintptr_t InteropStart = 0x000000E000000000ull;
+constexpr std::uintptr_t InteropEnd = 0x000000F000000000ull;
 constexpr std::uintptr_t MapAreaEnd = 0x000000FC00000000ull;
-// Keep a bounded startup window; acquire the rest of the guest range on demand.
-// Reserving it all at DLL load prevents NVIDIA's DLSS interop from initializing.
+// Keep low virtual addresses available for NVIDIA interop. Leave a 64 GiB host window
+// below the high fixed guest mappings (GT Sport uses 0xf3ffe00000). Protect the rest
+// before loading drivers so unconstrained host reservations cannot steal guest pools.
 
 std::uintptr_t alignUp(std::uintptr_t value, std::size_t alignment) {
     return (value + alignment - 1) & ~(static_cast<std::uintptr_t>(alignment) - 1);
@@ -125,10 +127,11 @@ private:
         _end = MapAreaEnd;
         _writeWatched = WriteWatchRequested();
         _used.emplace(SystemReservedStart, SystemReservedEnd);
-        // GT Sport places fixed pools immediately above the system range after Vulkan startup.
-        // Keep that bounded window available without claiming the entire upper map area.
-        if (!WindowsMappings::Get().Reserve(reinterpret_cast<void*>(SystemReservedEnd), StartupMapBytes))
-            throw std::runtime_error("cannot reserve startup guest mapping window");
+        _used.emplace(InteropStart, InteropEnd);
+        auto& mappings = WindowsMappings::Get();
+        if (!mappings.ReserveAvailable(PreferredBase, InteropStart) ||
+            !mappings.ReserveAvailable(InteropEnd, MapAreaEnd))
+            throw std::runtime_error("cannot reserve guest mapping windows around host interop space");
 #endif
     }
 

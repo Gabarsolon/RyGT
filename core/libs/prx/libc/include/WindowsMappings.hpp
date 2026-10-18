@@ -30,6 +30,18 @@ public:
         return reserve(reinterpret_cast<std::uintptr_t>(address), bytes);
     }
 
+    // Protect the free parts of a guest window before host drivers initialize.
+    // Existing foreign mappings remain foreign and cannot be reset or replaced.
+    bool ReserveAvailable(std::uintptr_t first, std::uintptr_t end) {
+        std::lock_guard lock(mutex);
+        for (auto cursor = first; cursor < end;) {
+            const auto memory = query(cursor);
+            const auto stop = std::min(end, reinterpret_cast<std::uintptr_t>(memory.BaseAddress) + memory.RegionSize);
+            if (memory.State == MEM_FREE && !reserve(cursor, stop - cursor)) return false;
+            cursor = stop;
+        }
+        return true;
+    }
     // NVIDIA's Vulkan/CUDA interop needs low virtual addresses of its own.
     // Search both guest-owned placeholders and currently free host ranges.
     void* FindAndReserve(std::uintptr_t first, std::uintptr_t end, std::size_t bytes, std::size_t alignment) {

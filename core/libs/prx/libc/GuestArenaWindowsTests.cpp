@@ -20,16 +20,25 @@ MEMORY_BASIC_INFORMATION Query(const void* address) {
 int main() {
     using namespace GuestArena;
     constexpr std::size_t Page = 0x4000;
-    // Stand in for NVIDIA's interop reservation after libc's static initialization.
     void* driverBase = nullptr;
-    constexpr std::size_t DriverBytes = 0x4000000000ull;
+    void* largeHost = nullptr;
+    constexpr std::size_t DriverBytes = 0xc00000000ull;
+    constexpr std::size_t LargeHostBytes = 0x4000000000ull;
     try {
-        for (std::uintptr_t candidate = 0x1100000000ull; candidate < 0xd000000000ull; candidate += 0x1000000000ull) {
-            driverBase = VirtualAlloc(reinterpret_cast<void*>(candidate), DriverBytes, MEM_RESERVE, PAGE_NOACCESS);
-            if (driverBase) break;
-        }
-        Require(driverBase != nullptr, "guest arena left no room for a driver reservation");
-
+        // An unconstrained 256 GiB AMD reservation must not occupy guest addresses.
+        largeHost = VirtualAlloc(nullptr, LargeHostBytes, MEM_RESERVE, PAGE_NOACCESS);
+        Require(largeHost && reinterpret_cast<std::uintptr_t>(largeHost) >= 0xfc00000000ull,
+                "large host reservation entered the guest mapping windows");
+        // NVIDIA needs 48 GiB of low virtual addresses for its interop reservations.
+        driverBase = VirtualAlloc(reinterpret_cast<void*>(0xe000000000ull), DriverBytes, MEM_RESERVE, PAGE_NOACCESS);
+        Require(driverBase != nullptr, "guest arena left no low-address interop space");
+        auto* race = reinterpret_cast<std::uint8_t*>(0x29000e0000ull);
+        Require(Query(race).State == MEM_RESERVE, "race fixed mapping window was not protected");
+        GuestArenaMarkUsed_nid_postfix(race, 0x10000);
+        GuestArenaCommit_nid_postfix(race, 0x10000, PAGE_READWRITE, Page);
+        race[0] = 9;
+        GuestArenaReset_nid_postfix(race, 0x10000);
+        GuestArenaRelease_nid_postfix(race, 0x10000);
         auto* startup = reinterpret_cast<std::uint8_t*>(0x1020000000ull);
         Require(Query(startup).State == MEM_RESERVE, "startup fixed mapping window was not protected");
         GuestArenaMarkUsed_nid_postfix(startup, 0x200000);
@@ -52,17 +61,21 @@ int main() {
         GuestArenaCommit_nid_postfix(first, Page, PAGE_READWRITE, Page);
         first[0] = 33;
 
-        const auto driverAddress = reinterpret_cast<std::uintptr_t>(driverBase);
-        auto* large = WindowsMappings::Get().FindAndReserve(driverAddress - 0x10000, driverAddress + DriverBytes + 0x200000000ull,
+        const auto driverAddress = reinterpret_cast<std::uintptr_t>(largeHost);
+        auto* large = WindowsMappings::Get().FindAndReserve(driverAddress - 0x10000, driverAddress + LargeHostBytes + 0x200000000ull,
                                                           0x200000000ull, 0x10000);
-        Require(large && reinterpret_cast<std::uintptr_t>(large) >= driverAddress + DriverBytes,
-                "automatic guest allocation did not skip the driver's reservation");
+        Require(large && reinterpret_cast<std::uintptr_t>(large) >= driverAddress + LargeHostBytes,
+                "reservation search did not skip foreign host memory");
         Require(Query(driverBase).AllocationBase == driverBase, "driver reservation was changed");
 
         bool rejected = false;
         try { GuestArenaMarkUsed_nid_postfix(driverBase, Page); }
         catch (const std::runtime_error&) { rejected = true; }
         Require(rejected, "fixed guest allocation accepted a host reservation");
+        rejected = false;
+        try { GuestArenaMarkUsed_nid_postfix(reinterpret_cast<void*>(0xec00000000ull), Page); }
+        catch (const std::runtime_error&) { rejected = true; }
+        Require(rejected, "fixed guest allocation stole unused interop address space");
         rejected = false;
         try { GuestArenaReset_nid_postfix(driverBase, Page); }
         catch (const std::runtime_error&) { rejected = true; }
@@ -93,7 +106,8 @@ int main() {
         GuestArenaRelease_nid_postfix(fixed, 2 * Page);
         CloseHandle(section);
         VirtualFree(driverBase, 0, MEM_RELEASE);
-        std::puts("PASS: sparse arena, host collisions, reuse, fixed mappings, partial unmap, shared aliases");
+        VirtualFree(largeHost, 0, MEM_RELEASE);
+        std::puts("PASS: partitioned arena, host collisions, reuse, fixed mappings, partial unmap, shared aliases");
         return 0;
     } catch (const std::exception& error) {
         std::fprintf(stderr, "FAIL: %s (Windows error %lu)\n", error.what(), GetLastError());
