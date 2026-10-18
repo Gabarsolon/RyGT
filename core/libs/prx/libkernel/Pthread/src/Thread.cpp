@@ -271,8 +271,7 @@ int APS5_VABI scePthreadCreate(Pthread* thread, const PthreadAttr* attr, Pthread
 int APS5_VABI scePthreadJoin(Pthread thread, void** retval) {
     if (!thread) throw std::runtime_error("scePthreadJoin: null thread");
     if (thread->_detached) return SCE_KERNEL_ERROR_EINVAL;
-    if (thread == currentThread)
-        throw std::runtime_error("scePthreadJoin: cannot join current thread");
+    if (thread == currentThread) return SCE_KERNEL_ERROR_EDEADLK; // as the console (was a crash)
 #ifdef _WIN32
     if (WaitForSingleObject(thread->nativeHandle, INFINITE) != WAIT_OBJECT_0)
         throw std::system_error(GetLastError(), std::system_category(), "Joining guest thread");

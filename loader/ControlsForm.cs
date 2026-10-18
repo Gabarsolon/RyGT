@@ -120,10 +120,10 @@ namespace RyGT
             var players = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 0, 0, 6) };
             players.Controls.Add(new Label { Text = "The keyboard controls", AutoSize = true, Margin = new Padding(0, 6, 8, 0) });
             keyboardPlayer = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 120, FlatStyle = FlatStyle.Flat };
-            keyboardPlayer.Items.AddRange(new object[] { "Player 1", "Player 2", "Player 3", "Player 4" });
-            keyboardPlayer.SelectedIndex = Math.Max(0, Math.Min(3, currentKeyboardPlayer - 1));
+            keyboardPlayer.Items.AddRange(new object[] { "Player 1", "Player 2" });
+            keyboardPlayer.SelectedIndex = Math.Max(0, Math.Min(PortsForm.Players - 1, currentKeyboardPlayer - 1));
             players.Controls.Add(keyboardPlayer);
-            players.Controls.Add(new Label { Text = "(player 2-4 on the keyboard: no second controller needed)", AutoSize = true, Margin = new Padding(8, 6, 0, 0), ForeColor = Dark.DimText, Tag = "heading" });
+            players.Controls.Add(new Label { Text = "(player 2 on the keyboard: no second controller needed)", AutoSize = true, Margin = new Padding(8, 6, 0, 0), ForeColor = Dark.DimText, Tag = "heading" });
             outer.Controls.Add(players);
 
             var table = new TableLayoutPanel { ColumnCount = 4, AutoSize = true, Dock = DockStyle.Top, Margin = new Padding(0) };
@@ -302,7 +302,7 @@ namespace RyGT
                 if (row.Pad.Enabled && row.Pad.SelectedIndex > 0) text.AppendLine(row.Output + " = " + row.Pad.SelectedItem);
             }
             text.AppendLine();
-            text.AppendLine("# Range of deadzones: 1 (almost none) to 127 (max), for players 1-4");
+            text.AppendLine("# Range of deadzones: 1 (almost none) to 127 (max), for players 1-2");
             for (int p = 1; p <= 4; ++p)
             {
                 string target = p > 1 ? ":" + p : "";

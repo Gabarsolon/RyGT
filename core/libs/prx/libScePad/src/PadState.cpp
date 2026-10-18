@@ -327,7 +327,7 @@ extern "C" void PadPublishInput_nid_postfix(const PadInputState& input) {
 
 // Which players have a controller (bit N = player N+1); player 1 is always connected.
 extern "C" void PadSetConnectedSlots_nid_postfix(std::uint32_t mask) {
-    connectedSlots.store((mask | 1u) & ((1u << PAD_MAX_PLAYERS) - 1u));
+    connectedSlots.store((mask | 1u) & ((1u << PAD_ACTIVE_PLAYERS) - 1u));
 }
 
 extern "C" void PadReportInputFailure_nid_postfix(std::exception_ptr error) {

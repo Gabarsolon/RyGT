@@ -1,5 +1,6 @@
-// RyGT loader: the Controller ports window. Picks which connected controller is player 1-4
-// (GT Sport's splitscreen) and shows a live preview of the chosen controller, like shadPS4.
+// RyGT loader: the Controller ports window. Picks which connected controller is player 1 or 2
+// (GT Sport's splitscreen), each player's name (the PSN-style user name the game shows), and
+// shows a live preview of the chosen controller, like shadPS4.
 // Controllers are found and read through Windows' joystick API (winmm), and remembered by USB
 // vendor/product id and their place among connected controllers of that id
 // (Input.controller_ports in the GT Sport config, read by the renderer's input bridge).
@@ -247,21 +248,26 @@ namespace RyGT
 
     class PortsForm : Form
     {
-        readonly ComboBox[] ports = new ComboBox[4];
-        readonly Label[] status = new Label[4];
+        // GT Sport's Split Screen is for 2 players.
+        public const int Players = 2;
+        // The game's user names are at most 16 bytes (UTF-8).
+        public const int MaxNameBytes = 16;
+        readonly ComboBox[] ports = new ComboBox[Players];
+        readonly TextBox[] names = new TextBox[Players];
+        readonly Label[] status = new Label[Players];
         readonly ControllerPreview preview;
         readonly Timer timer;
-        readonly Action<string> save;
+        readonly Action<string, string[]> save;
         List<Joysticks.Device> devices = new List<Joysticks.Device>();
-        readonly string[] chosen = new string[4];
+        readonly string[] chosen = new string[Players];
         int shownPlayer;
         int rescanTicks;
 
-        public PortsForm(string current, Action<string> save)
+        public PortsForm(string current, string[] currentNames, Action<string, string[]> save)
         {
             this.save = save;
             var parts = (current ?? "").Split(',');
-            for (int i = 0; i < 4; ++i) chosen[i] = i < parts.Length ? parts[i].Trim() : "";
+            for (int i = 0; i < Players; ++i) chosen[i] = i < parts.Length ? parts[i].Trim() : "";
 
             Text = "ryGT - Controller ports";
             Font = new Font("Segoe UI", 9f);
@@ -282,7 +288,8 @@ namespace RyGT
             var intro = new Label
             {
                 AutoSize = true, MaximumSize = new Size(840, 0), Margin = new Padding(0, 0, 0, 10),
-                Text = "Pick which controller plays as each player (GT Sport: Arcade, Split Screen for 2 players). " +
+                Text = "Pick each player's name and controller (GT Sport: Arcade, Split Screen for 2 players). " +
+                       "The name is the one the game shows for that player. " +
                        "\"Next connected\" takes the controllers nobody picked, in the order Windows lists them. " +
                        "Press buttons to see them light up in the preview; click a player to preview their controller."
             };
@@ -292,17 +299,25 @@ namespace RyGT
             var table = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Top, Margin = new Padding(0) };
             table.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            for (int i = 0; i < 4; ++i)
+            for (int i = 0; i < Players; ++i)
             {
                 int player = i;
-                table.Controls.Add(new Label { Text = "Player " + (i + 1), AutoSize = true, Margin = new Padding(0, 9, 10, 0), Font = new Font("Segoe UI Semibold", 9.5f) }, 0, i * 2);
+                table.Controls.Add(new Label { Text = "Player " + (i + 1), AutoSize = true, Margin = new Padding(0, 9, 10, 0), Font = new Font("Segoe UI Semibold", 9.5f) }, 0, i * 3);
+                var nameRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 4, 0, 0) };
+                nameRow.Controls.Add(new Label { Text = "Name", AutoSize = true, Margin = new Padding(0, 4, 8, 0) });
+                names[i] = new TextBox { Width = 130, BorderStyle = BorderStyle.FixedSingle, MaxLength = MaxNameBytes,
+                                         Text = currentNames != null && i < currentNames.Length ? currentNames[i] ?? "" : "" };
+                names[i].Enter += delegate { shownPlayer = player; };
+                nameRow.Controls.Add(names[i]);
+                nameRow.Controls.Add(new Label { Text = i == 0 ? "empty: Player" : "empty: Player " + (i + 1), AutoSize = true, Margin = new Padding(6, 4, 0, 0), ForeColor = Dark.DimText, Tag = "heading" });
+                table.Controls.Add(nameRow, 1, i * 3);
                 ports[i] = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill, FlatStyle = FlatStyle.Flat, Margin = new Padding(0, 4, 0, 0) };
                 ports[i].SelectedIndexChanged += delegate { OnPick(player); };
                 ports[i].Enter += delegate { shownPlayer = player; };
                 ports[i].DropDown += delegate { shownPlayer = player; };
-                table.Controls.Add(ports[i], 1, i * 2);
-                status[i] = new Label { AutoSize = true, ForeColor = Dark.DimText, Tag = "heading", Margin = new Padding(0, 2, 0, 6) };
-                table.Controls.Add(status[i], 1, i * 2 + 1);
+                table.Controls.Add(ports[i], 1, i * 3 + 1);
+                status[i] = new Label { AutoSize = true, ForeColor = Dark.DimText, Tag = "heading", Margin = new Padding(0, 2, 0, 10) };
+                table.Controls.Add(status[i], 1, i * 3 + 2);
             }
             outer.Controls.Add(table, 0, 1);
 
@@ -315,10 +330,21 @@ namespace RyGT
             var cancel = new Button { Text = "Cancel", AutoSize = true, DialogResult = DialogResult.Cancel };
             ok.Click += delegate
             {
-                try { save(string.Join(",", chosen)); DialogResult = DialogResult.OK; Close(); }
+                var picked = new string[Players];
+                for (int i = 0; i < Players; ++i)
+                {
+                    picked[i] = names[i].Text.Trim();
+                    if (System.Text.Encoding.UTF8.GetByteCount(picked[i]) > MaxNameBytes)
+                    {
+                        MessageBox.Show(this, "Player " + (i + 1) + "'s name is too long: up to " + MaxNameBytes + " letters (fewer with accents or symbols).");
+                        names[i].Focus();
+                        return;
+                    }
+                }
+                try { save(string.Join(",", chosen), picked); DialogResult = DialogResult.OK; Close(); }
                 catch (Exception e) { MessageBox.Show(this, "Could not save the ports: " + e.Message); }
             };
-            reset.Click += delegate { for (int i = 0; i < 4; ++i) chosen[i] = ""; Fill(); };
+            reset.Click += delegate { for (int i = 0; i < Players; ++i) chosen[i] = ""; Fill(); };
             buttons.Controls.AddRange(new Control[] { ok, reset, cancel });
             outer.Controls.Add(buttons, 0, 2);
             outer.SetColumnSpan(buttons, 2);
@@ -342,7 +368,7 @@ namespace RyGT
         void Fill()
         {
             filling = true;
-            for (int i = 0; i < 4; ++i)
+            for (int i = 0; i < Players; ++i)
             {
                 var box = ports[i];
                 box.Items.Clear();
@@ -377,7 +403,7 @@ namespace RyGT
             {
                 var key = devices[index - 1].Key;
                 // A controller plays as one player: picking it here frees it elsewhere.
-                for (int i = 0; i < 4; ++i) if (i != player && chosen[i] == key) chosen[i] = "";
+                for (int i = 0; i < Players; ++i) if (i != player && chosen[i] == key) chosen[i] = "";
                 chosen[player] = key;
             }
             Fill();
@@ -387,15 +413,15 @@ namespace RyGT
         /// first, then the others in Windows' order.
         Joysticks.Device[] Assignment()
         {
-            var result = new Joysticks.Device[4];
+            var result = new Joysticks.Device[Players];
             var used = new HashSet<string>();
-            for (int i = 0; i < 4; ++i)
+            for (int i = 0; i < Players; ++i)
             {
                 var d = devices.FirstOrDefault(x => x.Key == chosen[i]);
                 if (d != null) { result[i] = d; used.Add(d.Key); }
             }
             var rest = devices.Where(d => !used.Contains(d.Key)).ToList();
-            for (int i = 0; i < 4 && rest.Count > 0; ++i)
+            for (int i = 0; i < Players && rest.Count > 0; ++i)
             {
                 if (result[i] == null) { result[i] = rest[0]; rest.RemoveAt(0); }
             }
@@ -405,7 +431,7 @@ namespace RyGT
         void UpdateStatus()
         {
             var assigned = Assignment();
-            for (int i = 0; i < 4; ++i)
+            for (int i = 0; i < Players; ++i)
             {
                 status[i].Text = assigned[i] != null ? "Plays with: " + DeviceLabel(assigned[i]) :
                                  i == 0 ? "Plays with: the keyboard (no controller)" : "No controller: this player stays out";

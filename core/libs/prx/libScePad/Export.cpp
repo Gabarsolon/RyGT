@@ -16,12 +16,12 @@ constexpr int PAD_ERROR_DEVICE_NO_HANDLE = static_cast<int>(0x80920008);
 
 constexpr int USER_ID_FIRST = 0x10000000; // libSceUserService's player 1
 
-// Player slot of a user (players 1-4 have user ids 0x10000000-0x10000003); the system
+// Player slot of a user (players 1-2 have user ids 0x10000000-0x10000001); the system
 // user's remote port is player 1's.
 int SlotOfUser(int userId) {
     if (userId == PAD_USER_ID_SYSTEM) return 0;
     const int slot = userId - USER_ID_FIRST;
-    return slot >= 0 && slot < PAD_MAX_PLAYERS ? slot : -1;
+    return slot >= 0 && slot < PAD_ACTIVE_PLAYERS ? slot : -1;
 }
 
 bool g_opened[PAD_MAX_PLAYERS] = {};
@@ -101,7 +101,7 @@ int APS5_VABI scePadGetHandle(int user_id, int type, int index) {
 int APS5_VABI scePadGetInfo_nid_postfix(PadInfo* info) {
  if (info == nullptr) return PAD_ERROR_INVALID_ARG;
  std::memset(info, 0, sizeof(*info));
- info->maxConnectCount = 4;
+ info->maxConnectCount = PAD_ACTIVE_PLAYERS;
  int connected = 0;
  for (int slot = 0; slot < PAD_MAX_PLAYERS; ++slot) connected += Pad::Connected(slot) ? 1 : 0;
  info->connectedCount[0] = static_cast<std::uint8_t>(connected);

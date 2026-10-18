@@ -49,6 +49,9 @@ struct PadOutputState {
 };
 
 constexpr int PAD_MAX_PLAYERS = 4;
+// Players the game sees (GT Sport's Split Screen is for 2). The input bridge still feeds all
+// PAD_MAX_PLAYERS slots; players 3 and 4 are never connected.
+constexpr int PAD_ACTIVE_PLAYERS = 2;
 
 // Per player: slot 0 is player 1 (the initial user), slots 1-3 players 2-4.
 namespace Pad {

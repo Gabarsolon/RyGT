@@ -473,6 +473,8 @@ namespace RyGT
             AddOption(display, "Show an FPS counter", "General", "show_fps_counter", false);
             AddOption(display, "Show the splash screen while the game starts", "General", "show_splash", false);
             AddOption(display, "Show the game on Discord (Rich Presence)", "General", "discord_rpc_enabled", true);
+            // The game's opening movie (when its own option plays it); off: skipped at once.
+            AddOption(display, "Play the opening movie", "General", "opening_movie", true);
             AddMemorySetting(display);
 
 
@@ -505,19 +507,63 @@ namespace RyGT
             // NVIDIA (the dlss folder): DLSS upscaling through ryGT_dlss.dll and nvngx_dlss.dll, and
             // DLSS frame generation through Streamline (sl.*.dll and nvngx_dlssg.dll; RTX 40 and
             // newer, Windows' hardware-accelerated GPU scheduling on). One frame generation at a time.
-            bool dlssInstalled = File.Exists(Path.Combine(root, "dlss", "ryGT_dlss.dll")) &&
-                                 File.Exists(Path.Combine(root, "dlss", "nvngx_dlss.dll"));
-            var dlss = AddOption(graphics, dlssInstalled
-                ? "Upscale with NVIDIA DLSS (RTX cards; instead of FSR)"
-                : "Upscale with NVIDIA DLSS (needs the dlss folder)", "GPU", "dlss_enabled", false);
-            dlss.Enabled = dlssInstalled;
-            bool dlssgInstalled = File.Exists(Path.Combine(root, "dlss", "sl.interposer.dll")) &&
-                                  File.Exists(Path.Combine(root, "dlss", "nvngx_dlssg.dll"));
-            var dlssg = AddOption(graphics, dlssgInstalled
-                ? "DLSS frame generation: about 2x the frames (RTX 40+)"
-                : "DLSS frame generation (needs the dlss folder)", "GPU", "dlssg_enabled", false);
+            // The release does not include NVIDIA's files: the player adds their own copies with the
+            // button below (NVIDIA's DLSS SDK and Streamline SDK, or another game's copies).
+            string dlssDir = Path.Combine(root, "dlss");
+            var dlss = AddOption(graphics, "", "GPU", "dlss_enabled", false);
+            var dlssg = AddOption(graphics, "", "GPU", "dlssg_enabled", false);
             dlssg.Margin = new Padding(22, 2, 0, 2);
-            dlssg.Enabled = dlssgInstalled;
+            Action refreshDlss = delegate
+            {
+                bool dlssInstalled = File.Exists(Path.Combine(dlssDir, "ryGT_dlss.dll")) &&
+                                     File.Exists(Path.Combine(dlssDir, "nvngx_dlss.dll"));
+                bool dlssgInstalled = File.Exists(Path.Combine(dlssDir, "sl.interposer.dll")) &&
+                                      File.Exists(Path.Combine(dlssDir, "nvngx_dlssg.dll"));
+                dlss.Text = dlssInstalled ? "Upscale with NVIDIA DLSS (RTX cards; instead of FSR)"
+                                          : "Upscale with NVIDIA DLSS (add the DLSS files first)";
+                dlss.Enabled = dlssInstalled;
+                dlssg.Text = dlssgInstalled ? "DLSS frame generation: about 2x the frames (RTX 40+)"
+                                            : "DLSS frame generation (add the DLSS files first)";
+                dlssg.Enabled = dlssgInstalled;
+            };
+            refreshDlss();
+            var dlssFiles = new Button { Text = "Add DLSS files...", AutoSize = true, Margin = new Padding(22, 2, 0, 4) };
+            dlssFiles.Click += delegate
+            {
+                using (var dialog = new FolderBrowserDialog
+                {
+                    Description = "Pick the folder with your NVIDIA DLSS files: nvngx_dlss.dll for upscaling; " +
+                                  "for frame generation also nvngx_dlssg.dll and Streamline's sl.*.dll and " +
+                                  "NvLowLatencyVk.dll (from NVIDIA's DLSS and Streamline SDKs)."
+                })
+                {
+                    if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                    var names = new[] { "nvngx_dlss.dll", "nvngx_dlssg.dll", "sl.interposer.dll", "sl.common.dll",
+                                        "sl.dlss_g.dll", "sl.reflex.dll", "sl.pcl.dll", "NvLowLatencyVk.dll" };
+                    int copied = 0;
+                    try
+                    {
+                        Directory.CreateDirectory(dlssDir);
+                        foreach (var name in names)
+                        {
+                            // Found anywhere under the picked folder (the SDKs keep them in bin\x64).
+                            var found = Directory.GetFiles(dialog.SelectedPath, name, SearchOption.AllDirectories);
+                            if (found.Length == 0) continue;
+                            File.Copy(found[0], Path.Combine(dlssDir, name), true);
+                            ++copied;
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        MessageBox.Show(this, "Could not copy the DLSS files: " + e.Message);
+                    }
+                    refreshDlss();
+                    MessageBox.Show(this, copied == 0
+                        ? "No DLSS files were found in that folder."
+                        : "Copied " + copied + " DLSS file(s) into the dlss folder.");
+                }
+            };
+            graphics.Controls.Add(dlssFiles);
             framegen.CheckedChanged += delegate { if (framegen.Checked && dlssg.Checked) dlssg.Checked = false; };
             dlssg.CheckedChanged += delegate { if (dlssg.Checked && framegen.Checked) framegen.Checked = false; };
             // GTS-007: in the rain the game renders the scene a second time for the wet track's
@@ -532,7 +578,7 @@ namespace RyGT
             var controls = Section(right, "Controls");
             controls.Controls.Add(new Label
             {
-                Text = "Up to 4 players for Arcade's Split Screen: pick which controller is which player, " +
+                Text = "2 players for Arcade's Split Screen: pick each player's name and controller, " +
                        "and what each button does.",
                 AutoSize = true, MaximumSize = new Size(360, 0), BackColor = Color.Transparent, Margin = new Padding(0, 0, 0, 6)
             });
@@ -541,7 +587,14 @@ namespace RyGT
             portsButton.Click += delegate
             {
                 using (var form = new PortsForm(ReadStringSetting("Input", "controller_ports", ""),
-                                                ports => WriteSetting("Input", "controller_ports", ports)))
+                                                ReadStringSetting("General", "player_names", "").Split(','),
+                                                (ports, names) =>
+                                                {
+                                                    WriteSetting("Input", "controller_ports", ports);
+                                                    // Read by the game's user service (libSceUserService).
+                                                    WriteSetting("General", "player_names",
+                                                                 string.Join(",", names.Select(n => n.Replace(",", ""))));
+                                                }))
                 {
                     form.ShowDialog(this);
                 }
@@ -604,8 +657,13 @@ namespace RyGT
 
             column.Controls.Add(grid);
 
-            // Actions and progress.
-            var buttons = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 10, 0, 4), WrapContents = false };
+            // Actions on the left; the status line and the log to their right.
+            var bottom = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, BackColor = Color.Transparent, Margin = new Padding(0, 10, 0, 0) };
+            bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            bottom.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            bottom.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            var buttons = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 0, 12, 4), WrapContents = false };
             setup = new Button { Text = "Set up", AutoSize = true };
             play = new Button { Text = "Play", AutoSize = true, Tag = "accent", Font = new Font("Segoe UI Semibold", 10f) };
             var open = new Button { Text = "Open folder", AutoSize = true };
@@ -613,16 +671,18 @@ namespace RyGT
             play.Click += delegate { Play(); };
             open.Click += delegate { Process.Start("explorer.exe", "\"" + root + "\""); };
             buttons.Controls.AddRange(new Control[] { play, setup, open });
-            column.Controls.Add(buttons);
+            bottom.Controls.Add(buttons, 0, 0);
+            bottom.SetRowSpan(buttons, 2);
 
-            status = new Label { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(2, 2, 0, 6) };
-            column.Controls.Add(status);
+            status = new Label { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(2, 0, 0, 4) };
+            bottom.Controls.Add(status, 1, 0);
 
             log = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Height = 110, Dock = DockStyle.Fill, Font = new Font("Consolas", 8.5f) };
-            column.Controls.Add(log);
+            bottom.Controls.Add(log, 1, 1);
+            column.Controls.Add(bottom);
             foreach (Control control in column.Controls)
             {
-                if (control != log) column.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                if (control != bottom) column.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             }
             column.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
@@ -1500,7 +1560,7 @@ namespace RyGT
                 // The Controller ports or Button bindings window as a PNG (nothing is saved).
                 string root = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
                 using (Form form = args[0] == "--snapshot-ports"
-                           ? (Form)new PortsForm("", ports => { })
+                           ? (Form)new PortsForm("", null, (ports, names) => { })
                            : new ControlsForm(root, 1, player => { }))
                 {
                     form.StartPosition = FormStartPosition.Manual;
