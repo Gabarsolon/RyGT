@@ -10,6 +10,7 @@
 #include <mutex>
 #include <map>
 #include <memory>
+#include <limits>
 #include <vector>
 #include <stdexcept>
 #include <string>
@@ -24,12 +25,46 @@ public:
         return mappings;
     }
 
-    void* Reserve(void* address, std::size_t bytes) {
-        return allocate(GetCurrentProcess(), address, bytes, MEM_RESERVE | MEM_RESERVE_PLACEHOLDER, PAGE_NOACCESS, nullptr, 0);
+    bool Reserve(void* address, std::size_t bytes) {
+        std::lock_guard lock(mutex);
+        return reserve(reinterpret_cast<std::uintptr_t>(address), bytes);
+    }
+
+    // NVIDIA's Vulkan/CUDA interop needs low virtual addresses of its own.
+    // Search both guest-owned placeholders and currently free host ranges.
+    void* FindAndReserve(std::uintptr_t first, std::uintptr_t end, std::size_t bytes, std::size_t alignment) {
+        std::lock_guard lock(mutex);
+        if (bytes == 0 || alignment == 0 || (alignment & (alignment - 1)) != 0) return nullptr;
+        unsigned retries = 0;
+        auto candidate = alignUp(first, alignment);
+        while (candidate < end && bytes <= end - candidate) {
+            const auto stop = candidate + bytes;
+            auto cursor = candidate;
+            while (cursor < stop) {
+                const auto ownedEnd = reservationEnd(cursor);
+                if (ownedEnd > cursor) {
+                    cursor = std::min(stop, ownedEnd);
+                    continue;
+                }
+                const auto memory = query(cursor);
+                const auto regionEnd = reinterpret_cast<std::uintptr_t>(memory.BaseAddress) + memory.RegionSize;
+                if (memory.State != MEM_FREE) {
+                    candidate = alignUp(regionEnd, alignment);
+                    break;
+                }
+                cursor = std::min(stop, regionEnd);
+            }
+            if (cursor < stop) continue;
+            if (reserve(candidate, bytes)) return reinterpret_cast<void*>(candidate);
+            if (++retries == 8) return nullptr;
+            candidate = alignUp(candidate + allocationGranularity, alignment);
+        }
+        return nullptr;
     }
 
     void Commit(void* address, std::size_t bytes, DWORD protection, std::size_t granule, bool watched) {
         std::lock_guard lock(mutex);
+        requireOwned(reinterpret_cast<std::uintptr_t>(address), bytes);
         const auto end = reinterpret_cast<std::uintptr_t>(address) + bytes;
         for (auto cursor = reinterpret_cast<std::uintptr_t>(address); cursor < end;) {
             const auto memory = query(cursor);
@@ -298,6 +333,58 @@ private:
         unmap = reinterpret_cast<UnmapFunction>(GetProcAddress(module, "UnmapViewOfFile2"));
         if (!allocate || !map || !unmap) throw std::runtime_error("Windows placeholder memory APIs are required");
         compare = reinterpret_cast<CompareFunction>(GetProcAddress(module, "CompareObjectHandles"));
+        SYSTEM_INFO system{};
+        GetSystemInfo(&system);
+        allocationGranularity = system.dwAllocationGranularity;
+    }
+
+    static std::uintptr_t alignUp(std::uintptr_t value, std::size_t alignment) {
+        if (value > std::numeric_limits<std::uintptr_t>::max() - (alignment - 1)) return std::numeric_limits<std::uintptr_t>::max();
+        return (value + alignment - 1) & ~(static_cast<std::uintptr_t>(alignment) - 1);
+    }
+
+    std::uintptr_t reservationEnd(std::uintptr_t address) const {
+        auto it = reservations.upper_bound(address);
+        if (it == reservations.begin()) return address;
+        --it;
+        return it->second > address ? it->second : address;
+    }
+
+    bool reserve(std::uintptr_t address, std::size_t bytes) {
+        if (bytes == 0 || bytes > std::numeric_limits<std::uintptr_t>::max() - address) return false;
+        const auto first = address & ~(static_cast<std::uintptr_t>(allocationGranularity) - 1);
+        const auto end = alignUp(address + bytes, allocationGranularity);
+        if (end == std::numeric_limits<std::uintptr_t>::max()) return false;
+        // A driver's MEM_RESERVE allocation is not a replaceable guest placeholder.
+        std::vector<std::pair<std::uintptr_t, std::uintptr_t>> added;
+        for (auto cursor = first; cursor < end;) {
+            const auto ownedEnd = reservationEnd(cursor);
+            if (ownedEnd > cursor) {
+                cursor = std::min(end, ownedEnd);
+                continue;
+            }
+            const auto next = reservations.lower_bound(cursor);
+            const auto stop = next == reservations.end() ? end : std::min(end, next->first);
+            if (!allocate(GetCurrentProcess(), reinterpret_cast<void*>(cursor), stop - cursor,
+                          MEM_RESERVE | MEM_RESERVE_PLACEHOLDER, PAGE_NOACCESS, nullptr, 0)) {
+                for (const auto& [base, limit] : added) VirtualFree(reinterpret_cast<void*>(base), 0, MEM_RELEASE);
+                return false;
+            }
+            added.emplace_back(cursor, stop);
+            cursor = stop;
+        }
+        for (const auto& range : added) reservations.emplace(range);
+        return true;
+    }
+
+    void requireOwned(std::uintptr_t address, std::size_t bytes) const {
+        if (bytes == 0 || bytes > std::numeric_limits<std::uintptr_t>::max() - address) throw std::invalid_argument("invalid guest mapping range");
+        const auto end = address + bytes;
+        while (address < end) {
+            const auto next = reservationEnd(address);
+            if (next == address) throw std::runtime_error("guest mapping overlaps host address space");
+            address = std::min(end, next);
+        }
     }
 
     [[noreturn]] static void fail(const char* operation) {
@@ -324,6 +411,7 @@ private:
     }
 
     void reset(std::uintptr_t address, std::size_t bytes) {
+        requireOwned(address, bytes);
         const auto end = address + bytes;
         forgetClean(address, end);
         for (auto cursor = address; cursor < end;) {
@@ -413,6 +501,8 @@ private:
         return true;
     }
 
+    std::map<std::uintptr_t, std::uintptr_t> reservations;
+    std::size_t allocationGranularity = 0;
     std::map<std::uintptr_t, std::uintptr_t> cleanRanges;
     std::map<std::uintptr_t, View> views;
     std::map<std::pair<std::uintptr_t, std::uint64_t>, std::weak_ptr<SharedPage>> physical;

@@ -40,6 +40,19 @@ target_include_directories(libc PRIVATE
         ${LIBS_INCLUDE_DIR}
 )
 
+if(BUILD_TESTING AND WIN32)
+    add_test_executable(guest_arena_windows_tests
+            ${CMAKE_CURRENT_SOURCE_DIR}/GuestArenaWindowsTests.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/GuestArena.cpp)
+    target_include_directories(guest_arena_windows_tests PRIVATE ${LIBS_INCLUDE_DIR})
+    target_compile_definitions(guest_arena_windows_tests PRIVATE NOMINMAX)
+    target_compile_features(guest_arena_windows_tests PRIVATE cxx_std_20)
+    if(MSVC)
+        target_compile_options(guest_arena_windows_tests PRIVATE /EHs-c-)
+    endif()
+    add_test(NAME guest_arena_windows COMMAND guest_arena_windows_tests)
+endif()
+
 if(BUILD_TESTING)
     add_test_executable(guest_character_tests ${LIBS_INCLUDE_DIR}/tests/GuestCharacter.cpp)
     target_include_directories(guest_character_tests PRIVATE ${LIBS_INCLUDE_DIR})
