@@ -64,6 +64,10 @@ own decrypted dump of CUSA03220 with update 1.69 and your own firmware files.
 6. Run `GTSport.exe` (`RyGT.exe --prepare GTSport.exe` gives it the icon and the Windows subsystem,
    so no console window opens).
 
+The RyGT launcher has an **In-game user name** field. It saves your choice and passes it to the
+game when you press **Play**. Leaving it empty keeps the default name, `Player`. The runtime also
+accepts the `RYGT_USER_NAME` environment variable when the game is started directly.
+
 ## Status (2026-10-11)
 
 Boots, menus, races and the race summary work, at about 42-60 fps in races depending on how many

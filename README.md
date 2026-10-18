@@ -1,5 +1,14 @@
 # RyGT
 
+<h1 align="center">
+  <img src="assets/GranTurismoSportBanner.png" width="800" alt="Gran Turismo Sport banner">
+  <br>
+  <b>RyGT</b>
+  <br>
+  <sub>Gran Turismo Sport on PC</sub>
+</h1>
+
+
 **Gran Turismo Sport running as a native Windows program.**
 
 RyGT ports Gran Turismo Sport (CUSA03220, update 1.69) from PlayStation 4 to Windows. The game is
@@ -27,7 +36,8 @@ Known issues:
 - A few draws in the race summary can occasionally read garbage vertex descriptors; those draws
   are skipped.
 
-Tested on Windows 11 with an Intel i7-13700KF and an NVIDIA GPU.
+Tested on Windows 11 with an Intel i7-13700KF and an RTX 4070Ti.
+Tested on Windows 11 with an AMD Ryzen 5 9600X and an RTX 3060 12GB
 
 ## Download
 
@@ -93,6 +103,9 @@ and image tracking).
 - `main`: stable builds; releases come from here.
 - `development`: ongoing work. Changes reach `main` once they are tested.
 
+# Discord Server
+Join our server for more updates: https://discord.gg/8dz4U9Nd8d
+
 ## Documentation
 
 - [GT Sport setup](docs/gt-sport/README.md)
@@ -121,6 +134,12 @@ distribute copyrighted games, firmware, keys or proprietary libraries. Use your 
 obtained copy of the game and your own console's firmware files, in line with the laws where
 you live.
 
+Please do NOT ask shadps4 or Ryty servers for help from this project.
+
 ## License
 
 GNU General Public License version 2 only, as Ryty. The renderer (shadGT) is also GPL-2.0.
+
+<p align="center">
+  <img src="assets/GranTurismoSportBanner2.webp" width="800" alt="Gran Turismo Sport banner">
+</p>
