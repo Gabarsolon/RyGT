@@ -38,7 +38,7 @@ helper.
 Rebuild the launcher and libc. The renderer is a separate build: apply
 `renderer/shadGT-patches/0019-leveled-stdout-logging.patch` to shadGT `ryty-gpu`
 at `afc9e36cdcf1601336776147893581650410569e` (which already contains patches
-0001 through 0018), then rebuild `ryty_gpu`. An older prebuilt renderer does
+0001 through 0018), then apply `0020-fix-host-library-linking.patch` and rebuild the host libraries. An older prebuilt renderer does
 not implement `stdout_level`.
 
 With libc tests enabled, `ctest -R '^log_files$' --output-on-failure` checks

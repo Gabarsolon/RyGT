@@ -27,3 +27,6 @@ README (`cmake --preset x64-Clang-Release -DSHADGT_RYTY_GPU=ON`).
 For the portable stdout severity gate and timestamped log rotation, see
 [LOGGING.md](LOGGING.md). Patch 0019 is applied after the existing 0018 patch;
 the current upstream renderer does not include it.
+
+Patch 0020 fixes the non-renderer host libraries' shared-stub link dependencies
+when rebuilding the complete library set with logging enabled.
