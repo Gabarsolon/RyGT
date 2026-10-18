@@ -5,7 +5,7 @@
 #include <cstdint>
 
 // Guest virtual addresses stay below the PS5 application map limit. Windows
-// placeholders are acquired on demand, leaving unused space available to drivers.
+// protects a bounded startup window; further placeholders are acquired on demand.
 namespace GuestArena {
 
 extern "C" {

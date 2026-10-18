@@ -22,13 +22,21 @@ int main() {
     constexpr std::size_t Page = 0x4000;
     // Stand in for NVIDIA's interop reservation after libc's static initialization.
     void* driverBase = nullptr;
-    constexpr std::size_t DriverBytes = 0xc00000000ull;
+    constexpr std::size_t DriverBytes = 0x4000000000ull;
     try {
         for (std::uintptr_t candidate = 0x1100000000ull; candidate < 0xd000000000ull; candidate += 0x1000000000ull) {
             driverBase = VirtualAlloc(reinterpret_cast<void*>(candidate), DriverBytes, MEM_RESERVE, PAGE_NOACCESS);
             if (driverBase) break;
         }
         Require(driverBase != nullptr, "guest arena left no room for a driver reservation");
+
+        auto* startup = reinterpret_cast<std::uint8_t*>(0x1020000000ull);
+        Require(Query(startup).State == MEM_RESERVE, "startup fixed mapping window was not protected");
+        GuestArenaMarkUsed_nid_postfix(startup, 0x200000);
+        GuestArenaCommit_nid_postfix(startup, 0x200000, PAGE_READWRITE, Page);
+        startup[0] = 7;
+        GuestArenaReset_nid_postfix(startup, 0x200000);
+        GuestArenaRelease_nid_postfix(startup, 0x200000);
 
         auto* first = static_cast<std::uint8_t*>(GuestArenaAllocate_nid_postfix(Page, Page));
         auto* second = static_cast<std::uint8_t*>(GuestArenaAllocate_nid_postfix(Page, Page));

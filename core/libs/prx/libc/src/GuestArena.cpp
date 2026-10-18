@@ -21,8 +21,9 @@ namespace {
 constexpr std::uintptr_t PreferredBase = 0x0000000200000000ull;
 constexpr std::uintptr_t SystemReservedStart = 0x00000007FFFFC000ull;
 constexpr std::uintptr_t SystemReservedEnd = 0x0000001000000000ull;
+constexpr std::size_t StartupMapBytes = 0x0000000400000000ull; // 16 GiB above the system range.
 constexpr std::uintptr_t MapAreaEnd = 0x000000FC00000000ull;
-// Keep the full guest address range, but claim host placeholders only as needed.
+// Keep a bounded startup window; acquire the rest of the guest range on demand.
 // Reserving it all at DLL load prevents NVIDIA's DLSS interop from initializing.
 
 std::uintptr_t alignUp(std::uintptr_t value, std::size_t alignment) {
@@ -88,8 +89,12 @@ public:
         if ((next != _used.end() && next->first < start + bytes) || (next != _used.begin() && std::prev(next)->second > start))
             throw std::runtime_error("fixed guest mapping overlaps a guest arena range");
 #ifdef _WIN32
-        if (!WindowsMappings::Get().Reserve(const_cast<void*>(pointer), bytes))
-            throw std::runtime_error("fixed guest mapping overlaps host address space");
+        if (!WindowsMappings::Get().Reserve(const_cast<void*>(pointer), bytes)) {
+            char message[160];
+            std::snprintf(message, sizeof(message), "fixed guest mapping overlaps host address space: 0x%llx+0x%llx (Windows error %lu)",
+                static_cast<unsigned long long>(start), static_cast<unsigned long long>(bytes), GetLastError());
+            throw std::runtime_error(message);
+        }
 #endif
         _used.emplace(start, start + bytes);
     }
@@ -120,6 +125,10 @@ private:
         _end = MapAreaEnd;
         _writeWatched = WriteWatchRequested();
         _used.emplace(SystemReservedStart, SystemReservedEnd);
+        // GT Sport places fixed pools immediately above the system range after Vulkan startup.
+        // Keep that bounded window available without claiming the entire upper map area.
+        if (!WindowsMappings::Get().Reserve(reinterpret_cast<void*>(SystemReservedEnd), StartupMapBytes))
+            throw std::runtime_error("cannot reserve startup guest mapping window");
 #endif
     }
 
