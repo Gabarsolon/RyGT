@@ -119,8 +119,11 @@ if(RTY_HAVE_THIRD_PARTY)
     add_subdirectory(core/Decoder/Png)
     add_subdirectory(core/libs)
 else()
-    message(STATUS "3rdparty submodules are missing; building the Ryty CLI and unit tests only")
-    message(STATUS "Run 'git submodule update --init --recursive' to build the runtime libraries and GUI-adjacent components")
+    # Loud: without them the game's runtime libraries (libs/*.prx, libScePad.prx among them) are
+    # not built at all, and GTSport.exe fails to load them.
+    message(WARNING "3rdparty submodules are missing: the runtime libraries (libs/*.prx) will NOT be built, "
+                    "only the Ryty CLI and unit tests. Run 'git submodule update --init --recursive' and "
+                    "configure again.")
 endif()
 
 add_subdirectory(core/relinker)
