@@ -1,6 +1,7 @@
 #include "../include/Pthread.hpp"
 #include "../include/Mutex.hpp"
 #include "prx/libkernel/Time/include/TimedWait.hpp"
+#include "prx/libkernel/Time/include/Time.hpp"
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -58,12 +59,19 @@ int acquireMutex(PthreadMutex mutex, TAcquire acquire, int unavailable, bool try
     }
     if (owned && mutex->_count == std::numeric_limits<int>::max())
         throw std::overflow_error("Recursive mutex lock count overflow");
+    // RYGT_DIAG: a lock that is not free at once is timed as a contended wait.
+    const auto timedAcquire = [&](auto& native) {
+        if (tryOnly || !KernelDiagEnabled() || native.try_lock())
+            return tryOnly || !KernelDiagEnabled() ? acquire(native) : true;
+        KernelDiagScope diag(KernelDiagZone::Mutex, nullptr);
+        return acquire(native);
+    };
     if (mutex->_type == MutexType::Recursive) {
-        if (!acquire(mutex->_rmtx))
+        if (!timedAcquire(mutex->_rmtx))
             return unavailable;
         ++mutex->_count;
     } else {
-        if (!acquire(mutex->_mtx))
+        if (!timedAcquire(mutex->_mtx))
             return unavailable;
     }
     mutex->_owner.store(thread, std::memory_order_release);

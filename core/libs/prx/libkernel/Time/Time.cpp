@@ -3,6 +3,7 @@
 
 #include "prx/libc/include/General.hpp"
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
@@ -57,8 +58,59 @@ static std::uint64_t GetMonotonicNanos() {
     return origin + static_cast<std::uint64_t>(static_cast<double>(raw - origin) * TimeScale());
 }
 
+#ifdef _WIN32
+// The shadGT renderer (libSceVideoOut.prx) holds the guest clocks while its GPU thread compiles
+// shaders or pipelines, which a PS4 never does (its shaders are precompiled). Its RytyGpuGuestTsc
+// export is the host TSC with those pauses taken out. Without it a compile stall looks like a frame
+// hundreds of milliseconds long to the game: GT Sport's car thumbnail script polls its shot after one
+// 0.1 s sleep, finds nothing, and asserts (file_size > 10 * 1024) when a new car is bought.
+using GuestTscFn = std::uint64_t (*)();
+
+static GuestTscFn RendererGuestTsc() {
+    static std::atomic<GuestTscFn> found{nullptr};
+    static std::atomic<std::uint32_t> misses{0};
+    GuestTscFn fn = found.load(std::memory_order_acquire);
+    if (fn != nullptr) return fn;
+    // Looked up again now and then until the renderer is loaded (it loads before the game starts).
+    if ((misses.fetch_add(1, std::memory_order_relaxed) & 4095) != 0) return nullptr;
+    if (std::getenv("APS5_NO_GUEST_CLOCK") != nullptr) return nullptr;
+    if (HMODULE renderer = GetModuleHandleA("libSceVideoOut.prx")) {
+        fn = reinterpret_cast<GuestTscFn>(reinterpret_cast<void*>(GetProcAddress(renderer, "RytyGpuGuestTsc")));
+        if (fn != nullptr) found.store(fn, std::memory_order_release);
+    }
+    return fn;
+}
+
+extern "C" uint64_t APS5_VABI sceKernelGetTscFrequency(void);
+
+// The game's monotonic nanoseconds: the renderer's guest TSC when it provides one (continuing from
+// the host clock at the moment it was found), else the host clock. Never goes backwards.
+static std::uint64_t GuestMonotonicNanos() {
+    const GuestTscFn guestTsc = RendererGuestTsc();
+    if (guestTsc == nullptr) return GetMonotonicNanos();
+    struct Base {
+        std::uint64_t nanos, tsc, frequency;
+    };
+    static const Base base = [&] {
+        const std::uint64_t frequency = sceKernelGetTscFrequency();
+        return Base{GetMonotonicNanos(), guestTsc(), frequency};
+    }();
+    const std::uint64_t ticks = guestTsc() - base.tsc;
+    const std::uint64_t nanos = base.nanos + static_cast<std::uint64_t>(static_cast<unsigned __int128>(ticks) * 1000000000ULL / base.frequency);
+    static std::atomic<std::uint64_t> last{0};
+    std::uint64_t previous = last.load(std::memory_order_relaxed);
+    while (nanos > previous && !last.compare_exchange_weak(previous, nanos, std::memory_order_relaxed)) {
+    }
+    return std::max(nanos, previous);
+}
+#else
+static std::uint64_t GuestMonotonicNanos() {
+    return GetMonotonicNanos();
+}
+#endif
+
 static std::uint64_t GetStartNanos() {
-    static const std::uint64_t start = GetMonotonicNanos();
+    static const std::uint64_t start = GuestMonotonicNanos();
     return start;
 }
 
@@ -141,11 +193,11 @@ static const bool g_timerSelfTest = [] {
 extern "C" {
 
 std::uint64_t APS5_VABI sceKernelGetProcessTime() {
-    return (GetMonotonicNanos() - GetStartNanos()) / 1000ULL;
+    return (GuestMonotonicNanos() - GetStartNanos()) / 1000ULL;
 }
 
 std::uint64_t APS5_VABI sceKernelGetProcessTimeCounter() {
-    return GetMonotonicNanos() - GetStartNanos();
+    return GuestMonotonicNanos() - GetStartNanos();
 }
 
 std::uint64_t APS5_VABI sceKernelGetProcessTimeCounterFrequency() {
@@ -177,7 +229,78 @@ static void TraceSleep(const void* caller, std::uint64_t microseconds) {
     std::fprintf(stderr, "\n");
 }
 
+extern "C++" {
+
+#ifdef _WIN32
+using DiagRecordFn = void (*)(std::uint32_t, std::uint64_t, std::uint64_t);
+
+static DiagRecordFn RendererDiag() {
+    static std::atomic<DiagRecordFn> found{nullptr};
+    static std::atomic<std::uint32_t> misses{0};
+    DiagRecordFn fn = found.load(std::memory_order_acquire);
+    if (fn != nullptr) return fn;
+    if ((misses.fetch_add(1, std::memory_order_relaxed) & 1023) != 0) return nullptr;
+    if (HMODULE renderer = GetModuleHandleA("libSceVideoOut.prx")) {
+        fn = reinterpret_cast<DiagRecordFn>(reinterpret_cast<void*>(GetProcAddress(renderer, "RyGtDiagRecordNs")));
+        if (fn != nullptr) found.store(fn, std::memory_order_release);
+    }
+    return fn;
+}
+#endif
+
+bool KernelDiagEnabled() {
+#ifdef _WIN32
+    static const bool enabled = [] {
+        const char* env = std::getenv("RYGT_DIAG");
+        return env != nullptr && env[0] == '1';
+    }();
+    return enabled;
+#else
+    return false;
+#endif
+}
+
+void KernelDiagRecord(KernelDiagZone zone, std::uint64_t nanos, const void* caller) {
+#ifdef _WIN32
+    if (!KernelDiagEnabled()) return;
+    if (const DiagRecordFn fn = RendererDiag()) {
+        static const auto image = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
+        const auto address = reinterpret_cast<std::uintptr_t>(caller);
+        fn(static_cast<std::uint32_t>(zone), nanos, address > image ? address - image : address);
+    }
+#endif
+}
+
+void KernelDiagMark(KernelDiagZone zone, std::uint64_t arg) {
+#ifdef _WIN32
+    if (!KernelDiagEnabled()) return;
+    if (const DiagRecordFn fn = RendererDiag()) fn(static_cast<std::uint32_t>(zone), 0, arg);
+#else
+    (void)zone;
+    (void)arg;
+#endif
+}
+
+std::uint64_t KernelDiagWaker(const void* caller) {
+#ifdef _WIN32
+    static const auto image = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
+    const auto address = reinterpret_cast<std::uintptr_t>(caller);
+    const std::uint64_t offset = address > image && address - image < 0xFFFFFFFFull ? address - image : 0;
+    return (static_cast<std::uint64_t>(GetCurrentThreadId()) << 32) | offset;
+#else
+    (void)caller;
+    return 0;
+#endif
+}
+
+}  // extern "C++"
+
 void KernelTraceWait_nid_postfix(const char* kind, const void* caller, std::uint64_t waitedNanos, bool timedOut) {
+    if (KernelDiagEnabled()) {
+        const KernelDiagZone zone = kind[0] == 'e' ? (kind[1] == 'q' ? KernelDiagZone::Equeue : KernelDiagZone::EventFlag)
+                                  : kind[0] == 's' ? KernelDiagZone::Sema : KernelDiagZone::Cond;
+        KernelDiagRecord(zone, waitedNanos, caller);
+    }
     static const bool enabled = std::getenv("APS5_TRACE_WAITS") != nullptr;
     if (!enabled) return;
     struct Site { std::uint64_t calls = 0; std::uint64_t timeouts = 0; std::uint64_t nanos = 0; std::uint64_t longest = 0; unsigned long lastThread = 0; };
@@ -217,6 +340,7 @@ void KernelTraceWait_nid_postfix(const char* kind, const void* caller, std::uint
 
 int APS5_VABI sceKernelUsleep_nid_postfix(KernelUseconds microseconds) {
     TraceSleep(__builtin_return_address(0), microseconds);
+    KernelDiagScope diag(KernelDiagZone::Sleep, __builtin_return_address(0));
     TimedWait::SleepNanos(static_cast<std::uint64_t>(microseconds) * 1000ULL);
     return 0;
 }
@@ -228,6 +352,7 @@ int APS5_VABI sceKernelNanosleep(const KernelTimespec* rqtp, KernelTimespec* rmt
     if (rqtp->tv_sec < 0 || rqtp->tv_nsec < 0 || rqtp->tv_nsec >= 1000000000LL) {
         return -1;
     }
+    KernelDiagScope diag(KernelDiagZone::Sleep, __builtin_return_address(0));
     TimedWait::SleepNanos(static_cast<std::uint64_t>(rqtp->tv_sec) * 1000000000ULL +
                           static_cast<std::uint64_t>(rqtp->tv_nsec));
     if (rmtp != nullptr) {
@@ -246,6 +371,7 @@ int APS5_VABI _nanosleep_nid_postfix(const KernelTimespec* rqtp, KernelTimespec*
 }
 
 int APS5_VABI usleep_nid_postfix(KernelUseconds microseconds) {
+    KernelDiagScope diag(KernelDiagZone::Sleep, __builtin_return_address(0));
     TimedWait::SleepNanos(static_cast<std::uint64_t>(microseconds) * 1000ULL);
     return 0;
 }
@@ -276,7 +402,7 @@ int APS5_VABI clock_gettime_nid_postfix(int clockId, KernelTimespec* tp) {
         return 0;
     }
     if (clockId == 4 || clockId == 1 || clockId == 5 || clockId == 7 || clockId == 8 || clockId == 11 || clockId == 12) {
-        std::uint64_t nanos = GetMonotonicNanos();
+        std::uint64_t nanos = GuestMonotonicNanos();
         tp->tv_sec = static_cast<std::int64_t>(nanos / 1000000000ULL);
         tp->tv_nsec = static_cast<std::int64_t>(nanos % 1000000000ULL);
         return 0;
@@ -463,6 +589,9 @@ int APS5_VABI sceKernelGettimezone(KernelTimezone* tz) {
 }
 
 uint64_t APS5_VABI sceKernelReadTsc(void) {
+#ifdef _WIN32
+    if (const GuestTscFn guestTsc = RendererGuestTsc()) return guestTsc();
+#endif
     if (TimeScale() == 1.0) return __rdtsc();
     static const std::uint64_t origin = __rdtsc();
     return origin + static_cast<std::uint64_t>(static_cast<double>(__rdtsc() - origin) * TimeScale());

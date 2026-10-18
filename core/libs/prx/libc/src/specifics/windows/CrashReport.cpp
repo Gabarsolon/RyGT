@@ -15,8 +15,39 @@
 #include <utility>
 #include <mutex>
 #include "Sse4aEmulation.hpp"
+#include <io.h>
 
 namespace {
+
+// RyGT: GTSport.exe is a Windows (GUI) program, so a double-click starts it without standard input,
+// output or error. Then input reads NUL and output and error go to stdout.log and stderr.log next to
+// the executable. The CRT descriptors 0-2 and the Win32 handles follow, because the game's own
+// writes reach fd 1 through sceKernelWrite (which failed with EBADF and threw) and crash reports
+// write to the stderr handle. Runs when libc.prx loads, before the game starts.
+void RedirectDetachedStream(DWORD id, FILE* stream, int fd, const char* name, const char* mode) {
+    HANDLE handle = GetStdHandle(id);
+    if (handle != nullptr && handle != INVALID_HANDLE_VALUE) return;
+    char path[MAX_PATH] = "NUL";
+    if (std::strcmp(name, "NUL") != 0) {
+        const DWORD length = GetModuleFileNameA(nullptr, path, MAX_PATH);
+        if (length == 0 || length >= MAX_PATH) return;
+        char* slash = std::strrchr(path, '\\');
+        if (!slash || static_cast<std::size_t>(slash - path) + 1 + std::strlen(name) >= MAX_PATH) return;
+        std::strcpy(slash + 1, name);
+    }
+    if (!std::freopen(path, mode, stream)) return;
+    if (_fileno(stream) != fd) _dup2(_fileno(stream), fd);
+    if (stream == stderr) std::setvbuf(stream, nullptr, _IONBF, 0);
+    SetStdHandle(id, reinterpret_cast<HANDLE>(_get_osfhandle(fd)));
+}
+
+[[maybe_unused]] const bool g_detachedOutput = [] {
+    // In order, so each stream gets the lowest free descriptor: its own.
+    RedirectDetachedStream(STD_INPUT_HANDLE, stdin, 0, "NUL", "r");
+    RedirectDetachedStream(STD_OUTPUT_HANDLE, stdout, 1, "stdout.log", "w");
+    RedirectDetachedStream(STD_ERROR_HANDLE, stderr, 2, "stderr.log", "w");
+    return true;
+}();
 
 // The reporter runs on a faulting thread that may itself hold the CRT stream lock (a fault inside
 // printf), so it writes straight to the stderr handle.
@@ -447,9 +478,15 @@ int RendererHandlesFault(EXCEPTION_POINTERS* info) {
 // so this is the only trace of it.
 void TraceThrow(EXCEPTION_POINTERS* info) {
     constexpr DWORD GccThrow = 0x20474343;
-    static const bool enabled = std::getenv("APS5_TRACE_THROW") != nullptr;
+    // On by default for the first 40 throws (a throw that escapes into game code ends the
+    // process with no other trace); APS5_TRACE_THROW=1 reports every one, =0 none.
+    static const char* setting = std::getenv("APS5_TRACE_THROW");
+    static const bool all = setting != nullptr && setting[0] == '1';
+    static const bool none = setting != nullptr && setting[0] == '0';
+    static std::atomic<unsigned> reported{0};
     const auto* record = info->ExceptionRecord;
-    if (!enabled || record->ExceptionCode != GccThrow || record->NumberParameters < 1) return;
+    if (none || record->ExceptionCode != GccThrow || record->NumberParameters < 1) return;
+    if (!all && reported.fetch_add(1) >= 40) return;
     // libgcc raises it with the _Unwind_Exception (64 bytes under SEH) that directly precedes the
     // thrown object; the object's vtable is preceded by its type_info.
     const auto unwind = static_cast<std::uintptr_t>(record->ExceptionInformation[0]);
@@ -654,6 +691,22 @@ struct ExitReporter {
 } g_exitReporter;
 
 const bool g_crashReportInstalled = [] {
+    // The game's files (app0, _sd, user) are found relative to the working directory. Started
+    // from a shortcut, the taskbar or Windows search, that is not the game's folder, and the
+    // game failed at once ("neither param.json nor param.sfo found"). Use GTSport.exe's folder.
+    {
+        wchar_t exe[MAX_PATH] = {};
+        const DWORD length = GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        if (length != 0 && length < MAX_PATH) {
+            for (DWORD i = length; i > 0; --i) {
+                if (exe[i - 1] == L'\\' || exe[i - 1] == L'/') {
+                    exe[i - 1] = 0;
+                    SetCurrentDirectoryW(exe);
+                    break;
+                }
+            }
+        }
+    }
     g_sse4aEmulation = !IsEnvironmentSet("APS5_NO_SSE4A_EMULATION");
     g_sse4aTrace = IsEnvironmentSet("APS5_TRACE_SSE4A");
     AddVectoredExceptionHandler(1, ReportCrash);
@@ -672,6 +725,24 @@ const bool g_crashReportInstalled = [] {
                      static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(record->ExceptionAddress) - reinterpret_cast<std::uintptr_t>(module)),
                      record->NumberParameters >= 2 ? reinterpret_cast<void*>(record->ExceptionInformation[1]) : nullptr,
                      GetCurrentThreadId());
+        // The thread's name and the code addresses on its stack, so an error raised by a
+        // library (the code above is then only RaiseException) names its caller.
+        PWSTR description = nullptr;
+        if (SUCCEEDED(GetThreadDescription(GetCurrentThread(), &description)) && description) {
+            std::fprintf(stderr, "  thread name: %ls\n", description);
+            LocalFree(description);
+        }
+        const auto* context = info->ContextRecord;
+        char line[MAX_PATH + 64];
+        int printed = 0;
+        for (std::uint64_t slot = context->Rsp; printed < 24 && slot < context->Rsp + 0x2000; slot += 8) {
+            if (!IsReadable(slot)) break;
+            const auto value = *reinterpret_cast<const std::uint64_t*>(slot);
+            if (!IsExecutable(value)) continue;
+            DescribeAddress(value, line, sizeof(line));
+            std::fprintf(stderr, "  [rsp+0x%llx] %s\n", static_cast<unsigned long long>(slot - context->Rsp), line);
+            ++printed;
+        }
         std::fflush(stderr);
         return EXCEPTION_CONTINUE_SEARCH;
     });

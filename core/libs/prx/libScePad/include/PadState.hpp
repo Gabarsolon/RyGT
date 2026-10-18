@@ -48,19 +48,26 @@ struct PadOutputState {
     int vibrationMode = 0;
 };
 
+constexpr int PAD_MAX_PLAYERS = 4;
+
+// Per player: slot 0 is player 1 (the initial user), slots 1-3 players 2-4.
 namespace Pad {
 void Initialize();
-PadData ReadState();
-void SetVibration(std::uint8_t large, std::uint8_t small);
-void SetVibrationMode(int mode);
-void SetLightBar(bool valid, std::uint8_t r, std::uint8_t g, std::uint8_t b);
-void SetTriggerCommand(int trigger, const std::uint8_t* command);
-void ResetOrientation();
-void SetMotionEnabled(bool enabled);
+PadData ReadState(int slot);
+bool Connected(int slot);
+void SetVibration(int slot, std::uint8_t large, std::uint8_t small);
+void SetVibrationMode(int slot, int mode);
+void SetLightBar(int slot, bool valid, std::uint8_t r, std::uint8_t g, std::uint8_t b);
+void SetTriggerCommand(int slot, int trigger, const std::uint8_t* command);
+void ResetOrientation(int slot);
+void SetMotionEnabled(int slot, bool enabled);
 }
 
 extern "C" void PadPublishInput_nid_postfix(const PadInputState& input);
 extern "C" void PadReportInputFailure_nid_postfix(std::exception_ptr error);
 extern "C" bool PadFetchOutput_nid_postfix(std::uint32_t* seenSequence, PadOutputState* out);
+extern "C" void PadPublishInputSlot_nid_postfix(int slot, const PadInputState& input);
+extern "C" bool PadFetchOutputSlot_nid_postfix(int slot, std::uint32_t* seenSequence, PadOutputState* out);
+extern "C" void PadSetConnectedSlots_nid_postfix(std::uint32_t mask);
 
 #endif
