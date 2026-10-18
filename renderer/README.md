@@ -23,3 +23,7 @@ commit `4371a500`):
 To build: check out shadGT at `29af7ca6`, apply the patches with
 `git am <RyGT>/renderer/shadGT-patches/*.patch`, then build the `ryty_gpu` target as in the main
 README (`cmake --preset x64-Clang-Release -DSHADGT_RYTY_GPU=ON`).
+
+For the portable stdout severity gate and timestamped log rotation, see
+[LOGGING.md](LOGGING.md). Patch 0019 is applied after the existing 0018 patch;
+the current upstream renderer does not include it.
