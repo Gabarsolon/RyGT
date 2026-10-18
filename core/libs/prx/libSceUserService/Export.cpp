@@ -3,13 +3,37 @@
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 #include <atomic>
+#include <cstdio>
 #include <cstring>
 #include "prx/libSceUserService/UserService.hpp"
 
+namespace {
+
+constexpr int MAX_PLAYERS = 4;
+// Players logged in (bit N = player N+1, user id 0x10000000 + N). Player 1 always is; the others
+// log in while a controller is assigned to them (UserServiceSetPlayers, from the input bridge).
+std::atomic<std::uint32_t> g_players{1};
+std::atomic<std::uint32_t> g_reported{0};
+
+int SlotOf(int user_id) {
+ const int slot = user_id - USER_SERVICE_INITIAL_USER_ID;
+ return slot >= 0 && slot < MAX_PLAYERS && (g_players.load() >> slot & 1u) != 0 ? slot : -1;
+}
+
+bool Valid(int user_id) {
+ return SlotOf(user_id) >= 0;
+}
+
+}
+
 extern "C" {
 
+void UserServiceSetPlayers_nid_postfix(std::uint32_t mask) {
+ g_players.store((mask | 1u) & ((1u << MAX_PLAYERS) - 1u));
+}
+
 int APS5_VABI sceUserServiceGetAccessibilityChatTranscription(int user_id, int32_t* chat_transcription) {
- if (chat_transcription == nullptr || user_id != USER_SERVICE_INITIAL_USER_ID) {
+ if (chat_transcription == nullptr || !Valid(user_id)) {
   return USER_SERVICE_ERROR_INVALID_ARGUMENT;
  }
  *chat_transcription = 0;
@@ -17,7 +41,7 @@ int APS5_VABI sceUserServiceGetAccessibilityChatTranscription(int user_id, int32
 }
 
 int APS5_VABI sceUserServiceGetAccessibilityPressAndHoldDelay(int user_id, int32_t* press_and_hold_delay) {
- if (press_and_hold_delay == nullptr || user_id != USER_SERVICE_INITIAL_USER_ID) {
+ if (press_and_hold_delay == nullptr || !Valid(user_id)) {
   return USER_SERVICE_ERROR_INVALID_ARGUMENT;
  }
  *press_and_hold_delay = 0;
@@ -25,7 +49,7 @@ int APS5_VABI sceUserServiceGetAccessibilityPressAndHoldDelay(int user_id, int32
 }
 
 int APS5_VABI sceUserServiceGetAccessibilityTriggerEffect(int user_id, int32_t* trigger_effect) {
- if (trigger_effect == nullptr || user_id != USER_SERVICE_INITIAL_USER_ID) {
+ if (trigger_effect == nullptr || !Valid(user_id)) {
   return USER_SERVICE_ERROR_INVALID_ARGUMENT;
  }
  *trigger_effect = 0;
@@ -33,7 +57,7 @@ int APS5_VABI sceUserServiceGetAccessibilityTriggerEffect(int user_id, int32_t* 
 }
 
 int APS5_VABI sceUserServiceGetAccessibilityVibration(int user_id, int32_t* vibration) {
- if (vibration == nullptr || user_id != USER_SERVICE_INITIAL_USER_ID) {
+ if (vibration == nullptr || !Valid(user_id)) {
   return USER_SERVICE_ERROR_INVALID_ARGUMENT;
  }
  *vibration = 0;
@@ -41,7 +65,7 @@ int APS5_VABI sceUserServiceGetAccessibilityVibration(int user_id, int32_t* vibr
 }
 
 int APS5_VABI sceUserServiceGetAccessibilityZoomEnabled(int user_id, int32_t* zoom_enabled) {
- if (zoom_enabled == nullptr || user_id != USER_SERVICE_INITIAL_USER_ID) {
+ if (zoom_enabled == nullptr || !Valid(user_id)) {
   return USER_SERVICE_ERROR_INVALID_ARGUMENT;
  }
  *zoom_enabled = 0;
@@ -55,26 +79,32 @@ int APS5_VABI sceUserServiceGetAgeLevel(int user_id, uint32_t* age_level) {
  return 0;
 }
 
-// The initial user is reported as logging in once; afterwards there are no user events.
+// Player 1 is reported as logging in first; players 2-4 log in and out as their controllers come
+// and go.
 int APS5_VABI sceUserServiceGetEvent(SceUserServiceEvent* event) {
  if (event == nullptr) {
   return USER_SERVICE_ERROR_INVALID_ARGUMENT;
  }
- static std::atomic<bool> loginReported{false};
- if (loginReported.exchange(true)) {
-  return USER_SERVICE_ERROR_NO_EVENT;
- }
  constexpr std::uint32_t EventTypeLogin = 0;
- event->event_type = EventTypeLogin;
- event->user_id = USER_SERVICE_INITIAL_USER_ID;
- return USER_SERVICE_OK;
+ constexpr std::uint32_t EventTypeLogout = 1;
+ const std::uint32_t players = g_players.load();
+ std::uint32_t reported = g_reported.load();
+ for (int slot = 0; slot < MAX_PLAYERS; ++slot) {
+  const std::uint32_t bit = 1u << slot;
+  if ((players & bit) == (reported & bit)) continue;
+  if (!g_reported.compare_exchange_strong(reported, reported ^ bit)) return USER_SERVICE_ERROR_NO_EVENT;
+  event->event_type = (players & bit) != 0 ? EventTypeLogin : EventTypeLogout;
+  event->user_id = USER_SERVICE_INITIAL_USER_ID + slot;
+  return USER_SERVICE_OK;
+ }
+ return USER_SERVICE_ERROR_NO_EVENT;
 }
 
 int APS5_VABI sceUserServiceGetGamePresets(int user_id, UserServiceGamePresets* presets) {
  // System-wide game presets (difficulty, view inversion, subtitles, audio language) of the user's
  // profile. A fresh console has none set: every field is 0, "not specified", and the title falls
  // back to its own defaults. this_size is the caller's.
- if (presets == nullptr || user_id != USER_SERVICE_INITIAL_USER_ID) {
+ if (presets == nullptr || !Valid(user_id)) {
   return USER_SERVICE_ERROR_INVALID_ARGUMENT;
  }
  presets->difficulty = 0;
@@ -100,29 +130,35 @@ int APS5_VABI sceUserServiceGetLoginUserIdList(UserServiceLoginUserIdList* user_
  if (user_id_list == nullptr) {
   return USER_SERVICE_ERROR_INVALID_ARGUMENT;
  }
- user_id_list->user_id[0] = USER_SERVICE_INITIAL_USER_ID;
- user_id_list->user_id[1] = USER_SERVICE_USER_ID_INVALID;
- user_id_list->user_id[2] = USER_SERVICE_USER_ID_INVALID;
- user_id_list->user_id[3] = USER_SERVICE_USER_ID_INVALID;
+ const std::uint32_t players = g_players.load();
+ int n = 0;
+ for (int slot = 0; slot < MAX_PLAYERS; ++slot) {
+  if ((players >> slot & 1u) != 0) user_id_list->user_id[n++] = USER_SERVICE_INITIAL_USER_ID + slot;
+ }
+ while (n < MAX_PLAYERS) user_id_list->user_id[n++] = USER_SERVICE_USER_ID_INVALID;
  return USER_SERVICE_OK;
 }
 
 int APS5_VABI sceUserServiceGetUserName(int user_id, char* name, size_t size) {
- if (name == nullptr || user_id != USER_SERVICE_INITIAL_USER_ID) {
+ if (name == nullptr || !Valid(user_id)) {
   return USER_SERVICE_ERROR_INVALID_ARGUMENT;
  }
  if (size < USER_SERVICE_MAX_USER_NAME_LENGTH + 1) {
   return USER_SERVICE_ERROR_BUFFER_TOO_SHORT;
  }
- std::strncpy(name, USER_SERVICE_INITIAL_USER_NAME, size);
+ if (SlotOf(user_id) == 0) {
+  std::strncpy(name, USER_SERVICE_INITIAL_USER_NAME, size);
+ } else {
+  std::snprintf(name, size, "Player %d", SlotOf(user_id) + 1);
+ }
  return USER_SERVICE_OK;
 }
 
 int APS5_VABI sceUserServiceGetUserNumber(int user_id, int32_t* number) {
- if (number == nullptr || user_id != USER_SERVICE_INITIAL_USER_ID) {
+ if (number == nullptr || !Valid(user_id)) {
   return USER_SERVICE_ERROR_INVALID_ARGUMENT;
  }
- *number = 1;
+ *number = SlotOf(user_id) + 1;
  return USER_SERVICE_OK;
 }
 

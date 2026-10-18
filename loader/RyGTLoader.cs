@@ -414,8 +414,8 @@ namespace RyGT
             Text = "ryGT - Gran Turismo Sport";
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
             Font = new Font("Segoe UI", 9f);
-            ClientSize = new Size(1280, 780);
-            MinimumSize = new Size(1060, 700);
+            ClientSize = new Size(1280, 760);
+            MinimumSize = new Size(1260, 640);
             StartPosition = FormStartPosition.CenterScreen;
             DoubleBuffered = true;
             // The background picture (launcher\background.png next to RyGT.exe) fills the window;
@@ -425,7 +425,7 @@ namespace RyGT
 
             var column = new TableLayoutPanel
             {
-                Dock = DockStyle.Left, Width = 800, ColumnCount = 1, Padding = new Padding(24, 18, 10, 14),
+                Dock = DockStyle.Left, Width = 1220, ColumnCount = 1, Padding = new Padding(24, 18, 10, 14),
                 BackColor = Color.Transparent, AutoScroll = true
             };
             column.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -436,7 +436,7 @@ namespace RyGT
             {
                 Text = "Gran Turismo Sport on Windows. Pick your own decrypted dump (CUSA03220), its 1.69 update, " +
                        "your PS4 firmware's system modules and fonts; Set up converts the game, Play starts it.",
-                AutoSize = true, MaximumSize = new Size(760, 0), BackColor = Color.Transparent, Margin = new Padding(2, 0, 0, 12)
+                AutoSize = true, MaximumSize = new Size(1160, 0), BackColor = Color.Transparent, Margin = new Padding(2, 0, 0, 12)
             };
             column.Controls.Add(title);
             column.Controls.Add(subtitle);
@@ -453,25 +453,28 @@ namespace RyGT
             modules = AddRow(fileTable, 2, "System modules", settings.Modules);
             fonts = AddRow(fileTable, 3, "Fonts", settings.Fonts);
 
-            // Display and shaders on the left, graphics on the right.
-            var grid = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0) };
-            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            // Display on the left, graphics and controls in the middle, shaders on the right.
+            var grid = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0) };
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33));
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34));
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33));
             var left = new TableLayoutPanel { ColumnCount = 1, AutoSize = true, Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0, 0, 5, 0) };
-            var right = new TableLayoutPanel { ColumnCount = 1, AutoSize = true, Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(5, 0, 0, 0) };
+            var right = new TableLayoutPanel { ColumnCount = 1, AutoSize = true, Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(5, 0, 5, 0) };
+            var third = new TableLayoutPanel { ColumnCount = 1, AutoSize = true, Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(5, 0, 0, 0) };
             left.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            third.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             grid.Controls.Add(left, 0, 0);
             grid.Controls.Add(right, 1, 0);
+            grid.Controls.Add(third, 2, 0);
 
             var display = Section(left, "Display");
-            // Borderless fullscreen on the window's display (shadGT's full_screen; "Fullscreen" as
-            // full_screen_mode would switch the display mode instead).
-            AddOption(display, "Start in fullscreen", "GPU", "full_screen", false);
+            AddScreenSettings(display);
             AddOption(display, "Show an FPS counter", "General", "show_fps_counter", false);
             AddOption(display, "Show the splash screen while the game starts", "General", "show_splash", false);
             AddOption(display, "Show the game on Discord (Rich Presence)", "General", "discord_rpc_enabled", true);
             AddMemorySetting(display);
+
 
             // Graphics.
             var graphics = Section(right, "Graphics");
@@ -483,30 +486,40 @@ namespace RyGT
             }
             // AMD FSR scales the game's 1920x1080 picture to the window or screen size: FSR 3.1 through
             // amd_fidelityfx_vk.dll (next to GTSport.exe, part of the release), or shadGT's FSR 1 pass.
+            // AMD: FSR upscaling (FSR 3.1 through amd_fidelityfx_vk.dll, or shadGT's FSR 1) and
+            // FSR 3.1 frame generation (any GPU; independent of the upscaling choice).
             var fsr = AddOption(graphics, "Upscale with AMD FSR (above 1080p)", "GPU", "fsr_enabled", false);
             bool fsr3Installed = File.Exists(Path.Combine(root, "amd_fidelityfx_vk.dll"));
             var fsr3 = AddOption(graphics, fsr3Installed
                 ? "Use FSR 3.1.4 (off: FSR 1)"
                 : "Use FSR 3.1.4 (needs amd_fidelityfx_vk.dll)", "GPU", "fsr3_enabled", true);
             var rcas = AddOption(graphics, "FSR sharpening (RCAS)", "GPU", "rcas_enabled", true);
-            foreach (var sub in new[] { fsr3, rcas }) sub.Margin = new Padding(22, 2, 0, 2);
+            var framegen = AddOption(graphics, fsr3Installed
+                ? "FSR frame generation: about 2x the frames (any GPU)"
+                : "FSR frame generation (needs amd_fidelityfx_vk.dll)", "GPU", "framegen_enabled", false);
+            foreach (var sub in new[] { fsr3, rcas, framegen }) sub.Margin = new Padding(22, 2, 0, 2);
             fsr3.Enabled = fsr.Checked && fsr3Installed;
             rcas.Enabled = fsr.Checked;
+            framegen.Enabled = fsr3Installed;
             fsr.CheckedChanged += delegate { fsr3.Enabled = fsr.Checked && fsr3Installed; rcas.Enabled = fsr.Checked; };
-            // NVIDIA DLSS runs through the optional plugin (plugins/dlss): dlss\ryGT_dlss.dll and NVIDIA's
-            // nvngx_dlss.dll next to GTSport.exe. It is not part of the release, so the box stays grey without it.
+            // NVIDIA (the dlss folder): DLSS upscaling through ryGT_dlss.dll and nvngx_dlss.dll, and
+            // DLSS frame generation through Streamline (sl.*.dll and nvngx_dlssg.dll; RTX 40 and
+            // newer, Windows' hardware-accelerated GPU scheduling on). One frame generation at a time.
             bool dlssInstalled = File.Exists(Path.Combine(root, "dlss", "ryGT_dlss.dll")) &&
                                  File.Exists(Path.Combine(root, "dlss", "nvngx_dlss.dll"));
             var dlss = AddOption(graphics, dlssInstalled
                 ? "Upscale with NVIDIA DLSS (RTX cards; instead of FSR)"
-                : "Upscale with NVIDIA DLSS (needs the DLSS plugin)", "GPU", "dlss_enabled", false);
+                : "Upscale with NVIDIA DLSS (needs the dlss folder)", "GPU", "dlss_enabled", false);
             dlss.Enabled = dlssInstalled;
-            // AMD FSR 3.1 frame generation (amd_fidelityfx_vk.dll) shows a generated frame between
-            // each pair of game frames. Works on any GPU; independent of the upscaling choice.
-            var framegen = AddOption(graphics, fsr3Installed
-                ? "Frame generation (AMD FSR 3.1): about 2x the frames"
-                : "Frame generation (needs amd_fidelityfx_vk.dll)", "GPU", "framegen_enabled", false);
-            framegen.Enabled = fsr3Installed;
+            bool dlssgInstalled = File.Exists(Path.Combine(root, "dlss", "sl.interposer.dll")) &&
+                                  File.Exists(Path.Combine(root, "dlss", "nvngx_dlssg.dll"));
+            var dlssg = AddOption(graphics, dlssgInstalled
+                ? "DLSS frame generation: about 2x the frames (RTX 40+)"
+                : "DLSS frame generation (needs the dlss folder)", "GPU", "dlssg_enabled", false);
+            dlssg.Margin = new Padding(22, 2, 0, 2);
+            dlssg.Enabled = dlssgInstalled;
+            framegen.CheckedChanged += delegate { if (framegen.Checked && dlssg.Checked) dlssg.Checked = false; };
+            dlssg.CheckedChanged += delegate { if (dlssg.Checked && framegen.Checked) framegen.Checked = false; };
             // GTS-007: in the rain the game renders the scene a second time for the wet track's
             // reflection (about a quarter of a rainy frame's draws). Off: about +30% fps in rain.
             var wet = AddOption(graphics, "Wet-road reflections in the rain (off: much faster in rain)", "GPU",
@@ -514,13 +527,45 @@ namespace RyGT
             // GTS-008: the rear-view mirror is redrawn every second frame (its picture is kept).
             var mirror = AddOption(graphics, "Rear-view mirror at half rate (a little faster)", "GPU",
                                    "mirror_half_rate", false);
+            // Controls: which controller is which player (splitscreen) with a live preview, and the
+            // controller and keyboard bindings.
+            var controls = Section(right, "Controls");
+            controls.Controls.Add(new Label
+            {
+                Text = "Up to 4 players for Arcade's Split Screen: pick which controller is which player, " +
+                       "and what each button does.",
+                AutoSize = true, MaximumSize = new Size(360, 0), BackColor = Color.Transparent, Margin = new Padding(0, 0, 0, 6)
+            });
+            var controlButtons = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0), WrapContents = true };
+            var portsButton = new Button { Text = "Controller ports...", AutoSize = true };
+            portsButton.Click += delegate
+            {
+                using (var form = new PortsForm(ReadStringSetting("Input", "controller_ports", ""),
+                                                ports => WriteSetting("Input", "controller_ports", ports)))
+                {
+                    form.ShowDialog(this);
+                }
+            };
+            var bindingsButton = new Button { Text = "Button bindings...", AutoSize = true };
+            bindingsButton.Click += delegate
+            {
+                using (var form = new ControlsForm(root, Math.Max(1, ReadIntSetting("Input", "keyboard_player", 1)),
+                                                   player => WriteSetting("Input", "keyboard_player", player)))
+                {
+                    form.ShowDialog(this);
+                }
+            };
+            controlButtons.Controls.Add(portsButton);
+            controlButtons.Controls.Add(bindingsButton);
+            controls.Controls.Add(controlButtons);
+
             // The direct renderer (shaders read game memory in place; Tokyo rain 42.7 fps vs 32.1)
             // is the only renderer since 2026-10-16; the old renderer's stored shaders stand in
             // while its own are built (D10), so it has no option any more.
 
             // Shaders: the stored ones are built while the splash screen shows; a new one pauses
             // the game until it is compiled (instead of a stutter and missing objects).
-            var shaders = Section(left, "Shaders");
+            var shaders = Section(third, "Shaders");
             AddOption(shaders, "Precompile shaders on the splash screen", "GPU", "precompile_shaders", true);
             // What the game does while a new shader compiles during play (GPU.compile_mode).
             var modeRow = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 4, 0, 2), WrapContents = false };
@@ -736,6 +781,164 @@ namespace RyGT
             var status = new MemoryStatusEx { Length = (uint)Marshal.SizeOf(typeof(MemoryStatusEx)) };
             if (!GlobalMemoryStatusEx(ref status)) return 32;
             return (int)Math.Round(status.TotalPhys / (1024.0 * 1024 * 1024));
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        struct DevMode
+        {
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string DeviceName;
+            public ushort SpecVersion, DriverVersion, Size, DriverExtra;
+            public uint Fields;
+            public int PositionX, PositionY;
+            public uint DisplayOrientation, DisplayFixedOutput;
+            public short Color, Duplex, YResolution, TTOption, Collate;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string FormName;
+            public ushort LogPixels;
+            public uint BitsPerPel, PelsWidth, PelsHeight, DisplayFlags, DisplayFrequency;
+            public uint IcmMethod, IcmIntent, MediaType, DitherType, Reserved1, Reserved2, PanningWidth, PanningHeight;
+        }
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        static extern bool EnumDisplaySettings(string device, int mode, ref DevMode devMode);
+
+        class Descending<T> : IComparer<T> where T : IComparable<T>
+        {
+            public int Compare(T a, T b) { return b.CompareTo(a); }
+        }
+
+        /// The primary display's modes (resolution, largest first -> refresh rates in Hz, highest
+        /// first) and its current mode.
+        static SortedDictionary<long, SortedSet<int>> DisplayModes(out int currentWidth, out int currentHeight, out int currentHz)
+        {
+            var modes = new SortedDictionary<long, SortedSet<int>>(new Descending<long>());
+            var mode = new DevMode { Size = (ushort)Marshal.SizeOf(typeof(DevMode)) };
+            for (int i = 0; EnumDisplaySettings(null, i, ref mode); ++i)
+            {
+                if (mode.BitsPerPel < 24 || mode.PelsWidth < 1280 || mode.PelsHeight < 720) continue;
+                long key = ((long)mode.PelsWidth << 32) | mode.PelsHeight;
+                SortedSet<int> rates;
+                if (!modes.TryGetValue(key, out rates)) modes[key] = rates = new SortedSet<int>(new Descending<int>());
+                if (mode.DisplayFrequency > 1) rates.Add((int)mode.DisplayFrequency);
+            }
+            currentWidth = currentHeight = currentHz = 0;
+            if (EnumDisplaySettings(null, -1, ref mode))
+            {
+                currentWidth = (int)mode.PelsWidth;
+                currentHeight = (int)mode.PelsHeight;
+                currentHz = (int)mode.DisplayFrequency;
+            }
+            return modes;
+        }
+
+        string ReadStringSetting(string sectionName, string key, string fallback)
+        {
+            try
+            {
+                var config = LoadConfig();
+                object found, value;
+                var section = config.TryGetValue(sectionName, out found) ? found as Dictionary<string, object> : null;
+                if (section != null && section.TryGetValue(key, out value) && value is string) return (string)value;
+            }
+            catch { }
+            return fallback;
+        }
+
+        static string ModeText(long key)
+        {
+            return string.Format("{0} x {1}", key >> 32, key & 0xffffffff);
+        }
+
+        // Screen: windowed, borderless fullscreen (the desktop's resolution and refresh rate), or
+        // exclusive fullscreen at a chosen resolution and refresh rate (GPU.full_screen,
+        // full_screen_mode, window_width/height, fullscreen_refresh_rate). The game draws at
+        // 1920x1080 and runs at up to 60 fps; FSR or DLSS scale it to the screen, and a higher
+        // refresh rate shows frame generation's extra frames.
+        void AddScreenSettings(TableLayoutPanel panel)
+        {
+            int desktopWidth, desktopHeight, desktopHz;
+            var modes = DisplayModes(out desktopWidth, out desktopHeight, out desktopHz);
+
+            var screenRow = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 2), WrapContents = false };
+            var screen = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160, FlatStyle = FlatStyle.Flat };
+            screen.Items.AddRange(new object[] { "Windowed", "Borderless fullscreen", "Exclusive fullscreen" });
+            bool full = ReadSetting("GPU", "full_screen", false);
+            bool exclusive = ReadStringSetting("GPU", "full_screen_mode", "Windowed") == "Fullscreen";
+            screen.SelectedIndex = !full ? 0 : exclusive ? 2 : 1;
+            screenRow.Controls.Add(new Label { Text = "Screen", AutoSize = false, Width = 196, Height = 20, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0) });
+            screenRow.Controls.Add(screen);
+            panel.Controls.Add(screenRow);
+
+            var resolutionRow = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 2), WrapContents = false };
+            var resolution = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160, FlatStyle = FlatStyle.Flat };
+            var keys = modes.Keys.ToList();
+            int width = ReadIntSetting("GPU", "window_width", 0), height = ReadIntSetting("GPU", "window_height", 0);
+            if (width < 640 || height < 360)
+            {
+                width = desktopWidth > 0 ? Math.Min(1920, desktopWidth) : 1920;
+                height = desktopHeight > 0 ? Math.Min(1080, desktopHeight) : 1080;
+            }
+            long wanted = ((long)width << 32) | (uint)height;
+            if (!keys.Contains(wanted)) keys.Add(wanted);
+            foreach (var key in keys) resolution.Items.Add(ModeText(key));
+            resolution.SelectedIndex = keys.IndexOf(wanted);
+            resolutionRow.Controls.Add(new Label { Text = "Resolution", AutoSize = false, Width = 196, Height = 20, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0) });
+            resolutionRow.Controls.Add(resolution);
+            panel.Controls.Add(resolutionRow);
+
+            var refreshRow = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 2), WrapContents = false };
+            var refresh = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160, FlatStyle = FlatStyle.Flat };
+            refreshRow.Controls.Add(new Label { Text = "Refresh rate", AutoSize = false, Width = 196, Height = 20, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0) });
+            refreshRow.Controls.Add(refresh);
+            panel.Controls.Add(refreshRow);
+
+            bool loading = true;
+            Action<int> fillRates = delegate (int wantedHz)
+            {
+                refresh.Items.Clear();
+                refresh.Items.Add(desktopHz > 0 ? string.Format("Desktop ({0} Hz)", desktopHz) : "Desktop");
+                SortedSet<int> rates;
+                if (modes.TryGetValue(keys[resolution.SelectedIndex], out rates))
+                {
+                    foreach (int hz in rates) refresh.Items.Add(hz + " Hz");
+                }
+                int index = refresh.Items.IndexOf(wantedHz + " Hz");
+                refresh.SelectedIndex = wantedHz > 0 && index > 0 ? index : 0;
+            };
+            Action save = delegate
+            {
+                if (loading) return;
+                try
+                {
+                    WriteSetting("GPU", "full_screen", screen.SelectedIndex != 0);
+                    WriteSetting("GPU", "full_screen_mode", screen.SelectedIndex == 2 ? "Fullscreen" : "Borderless");
+                    long key = keys[resolution.SelectedIndex];
+                    WriteSetting("GPU", "window_width", (int)(key >> 32));
+                    WriteSetting("GPU", "window_height", (int)(key & 0xffffffff));
+                    WriteSetting("GPU", "fullscreen_refresh_rate",
+                                 refresh.SelectedIndex > 0 ? int.Parse(((string)refresh.SelectedItem).Replace(" Hz", "")) : 0);
+                }
+                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
+            };
+            Action enable = delegate
+            {
+                // Borderless fullscreen always uses the desktop's mode.
+                resolution.Enabled = screen.SelectedIndex != 1;
+                refresh.Enabled = screen.SelectedIndex == 2;
+            };
+            fillRates(ReadIntSetting("GPU", "fullscreen_refresh_rate", 0));
+            enable();
+            screen.SelectedIndexChanged += delegate { enable(); save(); };
+            resolution.SelectedIndexChanged += delegate
+            {
+                if (loading) return;
+                loading = true;
+                int hz = refresh.SelectedIndex > 0 ? int.Parse(((string)refresh.SelectedItem).Replace(" Hz", "")) : 0;
+                fillRates(hz);
+                loading = false;
+                save();
+            };
+            refresh.SelectedIndexChanged += delegate { save(); };
+            loading = false;
         }
 
         // System memory (GPU.system_ram_gb): how much the game may use for things it can do
@@ -1286,6 +1489,30 @@ namespace RyGT
                     using (var image = new Bitmap(content.Width, content.Height))
                     {
                         content.DrawToBitmap(image, new Rectangle(Point.Empty, content.Size));
+                        image.Save(args[1], System.Drawing.Imaging.ImageFormat.Png);
+                    }
+                    form.Close();
+                }
+                return 0;
+            }
+            if (args.Length == 2 && (args[0] == "--snapshot-ports" || args[0] == "--snapshot-bindings"))
+            {
+                // The Controller ports or Button bindings window as a PNG (nothing is saved).
+                string root = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
+                using (Form form = args[0] == "--snapshot-ports"
+                           ? (Form)new PortsForm("", ports => { })
+                           : new ControlsForm(root, 1, player => { }))
+                {
+                    form.StartPosition = FormStartPosition.Manual;
+                    form.Location = new Point(-4000, -4000);
+                    form.ShowInTaskbar = false;
+                    form.Show();
+                    Application.DoEvents();
+                    Thread.Sleep(200);
+                    Application.DoEvents();
+                    using (var image = new Bitmap(form.ClientSize.Width, form.ClientSize.Height))
+                    {
+                        form.DrawToBitmap(image, new Rectangle(Point.Empty, form.ClientSize));
                         image.Save(args[1], System.Drawing.Imaging.ImageFormat.Png);
                     }
                     form.Close();
