@@ -12,6 +12,17 @@ every frame. That makes it a single-frame upscaler, not the temporal DLSS games 
 on RTX cards, picks the DLSS quality mode that fits the window size (DLAA when the window is
 1920x1080), and falls back to FSR when DLSS is unavailable.
 
+The window resolution is the output resolution, not the game's render resolution. A 2560x1440
+window still receives a 1920x1080 picture (75% of the output width and height). Performance and
+Balanced render-scale settings are not exposed: choosing another NGX quality mode would not make
+the game render fewer pixels. Installing a newer `nvngx_dlss.dll` does not supply the missing
+motion vectors, depth or jitter, or enable temporal accumulation.
+
+The plugin caches a successful quality-mode selection for the current input/output dimensions.
+Resizing or starting a new device session queries NGX again. Failed selections are retried.
+This removes repeated NGX optimal-settings queries from steady-state frames; it does not reduce
+the cost of rendering the game's 1080p picture or evaluating DLSS on the GPU.
+
 ## Build
 
 You need clang-cl, Visual Studio's C++ libraries, NVIDIA's DLSS SDK
@@ -36,3 +47,15 @@ has work to do when the window or screen is larger than 1080p.
 
 `rygt_dlss_api.h` is the interface between the renderer and the plugin; shadGT's
 `ryty_gpu/rygt_dlss_api.h` must stay identical.
+
+## Tests
+
+The mode-cache tests need a C++17 compiler and CMake, without the DLSS SDK or an RTX GPU:
+
+```
+cmake -S plugins/dlss/tests -B build/dlss-tests
+cmake --build build/dlss-tests --config Release
+ctest --test-dir build/dlss-tests -C Release --output-on-failure
+```
+
+They are also registered by the root project when `BUILD_TESTING` is enabled.

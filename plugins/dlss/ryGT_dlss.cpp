@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "ModeCache.hpp"
 #include "rygt_dlss_api.h" // Vulkan first: the NGX headers use its types
 
 #include "nvsdk_ngx_helpers.h"
@@ -46,6 +47,7 @@ bool g_initialized = false;
 NVSDK_NGX_Parameter* g_params = nullptr;
 NVSDK_NGX_Handle* g_feature = nullptr;
 uint32_t g_feature_in_w = 0, g_feature_in_h = 0, g_feature_out_w = 0, g_feature_out_h = 0;
+RygtDlss::ModeCache<NVSDK_NGX_PerfQuality_Value> modeCache;
 
 // Device functions the plugin itself uses.
 PFN_vkGetPhysicalDeviceMemoryProperties p_vkGetPhysicalDeviceMemoryProperties = nullptr;
@@ -210,7 +212,7 @@ void ClearAux(VkCommandBuffer cmd, AuxImage& aux) {
 }
 
 // The quality mode whose input size range holds the given input size for this output size.
-bool PickMode(uint32_t in_w, uint32_t in_h, uint32_t out_w, uint32_t out_h,
+bool QueryMode(uint32_t in_w, uint32_t in_h, uint32_t out_w, uint32_t out_h,
               NVSDK_NGX_PerfQuality_Value* mode) {
     if (in_w > out_w || in_h > out_h) {
         return false;
@@ -239,6 +241,22 @@ bool PickMode(uint32_t in_w, uint32_t in_h, uint32_t out_w, uint32_t out_h,
         }
     }
     return false;
+}
+
+bool PickMode(uint32_t in_w, uint32_t in_h, uint32_t out_w, uint32_t out_h,
+              NVSDK_NGX_PerfQuality_Value* mode) {
+    const auto selected = modeCache.Get({in_w, in_h, out_w, out_h}, [&]() {
+        NVSDK_NGX_PerfQuality_Value candidate{};
+        if (!QueryMode(in_w, in_h, out_w, out_h, &candidate)) {
+            return std::optional<NVSDK_NGX_PerfQuality_Value>{};
+        }
+        return std::optional<NVSDK_NGX_PerfQuality_Value>{candidate};
+    });
+    if (!selected) {
+        return false;
+    }
+    *mode = *selected;
+    return true;
 }
 
 void ReleaseFeature() {
@@ -304,6 +322,7 @@ __declspec(dllexport) int VKAPI_CALL RygtDlss_Init(VkInstance instance,
                                                    VkDevice device, PFN_vkGetInstanceProcAddr gipa,
                                                    PFN_vkGetDeviceProcAddr gdpa,
                                                    const wchar_t* data_path) {
+    modeCache.Reset();
     SetupCommonInfo();
     g_instance = instance;
     g_physical_device = physical_device;
@@ -444,6 +463,7 @@ __declspec(dllexport) int VKAPI_CALL RygtDlss_Evaluate(VkCommandBuffer cmd,
 }
 
 __declspec(dllexport) void VKAPI_CALL RygtDlss_Shutdown(void) {
+    modeCache.Reset();
     ReleaseFeature();
     if (g_device) {
         DestroyAux(g_motion);
