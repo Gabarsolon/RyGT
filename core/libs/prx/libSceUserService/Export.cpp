@@ -165,6 +165,16 @@ bool Valid(int user_id) {
 
 extern "C" {
 
+int APS5_VABI sceUserServiceIsLoggedIn() {
+    return 0;
+}
+
+int APS5_VABI sceUserServiceGetUserColor(int user_id, void* color) {
+    (void)user_id;
+    (void)color;
+    return 0;
+}
+
 void UserServiceSetPlayers_nid_postfix(std::uint32_t mask) {
  g_players.store((mask | 1u) & ((1u << MAX_PLAYERS) - 1u));
 }

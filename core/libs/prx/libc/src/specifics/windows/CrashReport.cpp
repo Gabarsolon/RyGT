@@ -576,6 +576,11 @@ LONG WINAPI ReportCrash(EXCEPTION_POINTERS* info) {
         const char* kind = record->ExceptionInformation[0] == 0 ? "read" : record->ExceptionInformation[0] == 1 ? "write" : "execute";
         Report("  %s of 0x%016llx\n", kind, static_cast<unsigned long long>(record->ExceptionInformation[1]));
     }
+    if (record->ExceptionCode == 0xc0000006u && record->NumberParameters >= 3) {
+        Report("  in-page error at 0x%016llx, underlying status 0x%08llx\n",
+            static_cast<unsigned long long>(record->ExceptionInformation[1]),
+            static_cast<unsigned long long>(record->ExceptionInformation[2]));
+    }
     Report("  rax %016llx rbx %016llx rcx %016llx rdx %016llx\n", context->Rax, context->Rbx, context->Rcx, context->Rdx);
     Report("  rsi %016llx rdi %016llx rbp %016llx rsp %016llx\n", context->Rsi, context->Rdi, context->Rbp, context->Rsp);
     Report("  r8  %016llx r9  %016llx r10 %016llx r11 %016llx\n", context->R8, context->R9, context->R10, context->R11);

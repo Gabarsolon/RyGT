@@ -399,7 +399,7 @@ namespace RyGT
         static readonly string[] FirmwareModules = { "libSceFont", "libSceFontFt", "libSceFreeTypeOt", "libSceJson2", "libSceNgs2" };
         // Used when present: the JPEG decoder (Scapes thumbnails and backgrounds) and PNG encoder (photos).
         // Both are plain software modules needing only libkernel and libSceLibcInternal.
-        static readonly string[] OptionalFirmwareModules = { "libSceJpegDec", "libScePngEnc" };
+        static readonly string[] OptionalFirmwareModules = { "libSceJpegDec", "libScePngEnc", "libSceBluetoothHid", "libSceHmdSetupDialog", "libSceInvitationDialog", "libSceVrServiceDialog", "libSceVrTracker", "libSceUsbStorage", "libSceUsbStorageDialog", "libSceCamera", "libSceMbus", "libSceRegMgr", "libSceSysUtil", "libSceIpmi", "libSceMove" };
 
         readonly string root = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
         readonly Settings settings;
@@ -1153,8 +1153,7 @@ namespace RyGT
             {
                 var found = FindModule(settings.Modules, name);
                 if (found != null) firmware[name] = found;
-                else Log("Note: " + name + " is not in the system modules folder; " +
-                         (name == "libSceJpegDec" ? "Scapes images will not show." : "saving photos will not work."));
+                else Log("Note: " + name + " is not in the system modules folder; some related game features may be unavailable.");
             }
 
             // 1. The executable and modules to convert, unwrapped to plain ELF.

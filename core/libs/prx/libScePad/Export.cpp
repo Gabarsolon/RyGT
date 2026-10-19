@@ -42,6 +42,10 @@ int SlotOfHandle(int handle) {
 
 extern "C" {
 
+int APS5_VABI scePadGetFeatureReport() {
+ return PAD_OK;
+}
+
 int APS5_VABI scePadClose_nid_postfix(int handle) {
  const int slot = SlotOfHandle(handle);
  if (slot < 0) {
@@ -271,3 +275,104 @@ int APS5_VABI scePadSetVibrationTriggerEffectWeakWhileEmbeddedMicInUse(bool enab
 }
 
 }
+
+// Controller extensions unsupported by this runtime.
+extern "C" {
+int APS5_VABI scePadClose() { return PAD_OK; }
+int APS5_VABI scePadConnectPort() { return PAD_OK; }
+int APS5_VABI scePadDeviceOpen() { return PAD_OK; }
+int APS5_VABI scePadDisableTriggerEffect() { return PAD_OK; }
+int APS5_VABI scePadDisableVibration() { return PAD_OK; }
+int APS5_VABI scePadDisconnectDevice() { return PAD_OK; }
+int APS5_VABI scePadDisconnectPort() { return PAD_OK; }
+int APS5_VABI scePadEnableAutoDetect() { return PAD_OK; }
+int APS5_VABI scePadEnableExtensionPort() { return PAD_OK; }
+int APS5_VABI scePadEnableSpecificDeviceClass() { return PAD_OK; }
+int APS5_VABI scePadEnableUsbConnection() { return PAD_OK; }
+int APS5_VABI scePadGetActiveTime() { return PAD_OK; }
+int APS5_VABI scePadGetBluetoothAddress() { return PAD_OK; }
+int APS5_VABI scePadGetCapability() { return PAD_OK; }
+int APS5_VABI scePadGetDataInternal() { return PAD_OK; }
+int APS5_VABI scePadGetDeviceId() { return PAD_OK; }
+int APS5_VABI scePadGetDeviceInfo() { return PAD_OK; }
+int APS5_VABI scePadGetExtensionUnitInfo() { return PAD_OK; }
+int APS5_VABI scePadGetFeatureReport2() { return PAD_OK; }
+int APS5_VABI scePadGetIdleCount() { return PAD_OK; }
+int APS5_VABI scePadGetInfo() { return PAD_OK; }
+int APS5_VABI scePadGetInfoByPortType() { return PAD_OK; }
+int APS5_VABI scePadGetLicenseControllerInformation() { return PAD_OK; }
+int APS5_VABI scePadGetMotionSensorPosition() { return PAD_OK; }
+int APS5_VABI scePadGetMotionTimerUnit() { return PAD_OK; }
+int APS5_VABI scePadGetSphereRadius() { return PAD_OK; }
+int APS5_VABI scePadGetVersionInfo() { return PAD_OK; }
+int APS5_VABI scePadInit() { return PAD_OK; }
+int APS5_VABI scePadIsBlasterConnected() { return PAD_OK; }
+int APS5_VABI scePadIsDS4Connected() { return PAD_OK; }
+int APS5_VABI scePadIsLightBarBaseBrightnessControllable() { return PAD_OK; }
+int APS5_VABI scePadIsMoveConnected() { return PAD_OK; }
+int APS5_VABI scePadIsMoveReproductionModel() { return PAD_OK; }
+int APS5_VABI scePadIsValidHandle() { return PAD_OK; }
+int APS5_VABI scePadLastLotusButtonData() { return PAD_OK; }
+int APS5_VABI scePadMbusInit() { return PAD_OK; }
+int APS5_VABI scePadMbusTerm() { return PAD_OK; }
+int APS5_VABI scePadOpen() { return PAD_OK; }
+int APS5_VABI scePadOpenExt() { return PAD_OK; }
+int APS5_VABI scePadOpenExt2() { return PAD_OK; }
+int APS5_VABI scePadOutputReport() { return PAD_OK; }
+int APS5_VABI scePadRead() { return PAD_OK; }
+int APS5_VABI scePadReadBlasterForTracker() { return PAD_OK; }
+int APS5_VABI scePadReadExt() { return PAD_OK; }
+int APS5_VABI scePadReadForTracker() { return PAD_OK; }
+int APS5_VABI scePadReadHistory() { return PAD_OK; }
+int APS5_VABI scePadReadStateExt() { return PAD_OK; }
+int APS5_VABI scePadRemoteControlInsertData() { return PAD_OK; }
+int APS5_VABI scePadResetLightBarAll() { return PAD_OK; }
+int APS5_VABI scePadResetLightBarAllByPortType() { return PAD_OK; }
+int APS5_VABI scePadResetOrientationForTracker() { return PAD_OK; }
+int APS5_VABI scePadSetAngularVelocityBiasCorrectionState() { return PAD_OK; }
+int APS5_VABI scePadSetAutoPowerOffCount() { return PAD_OK; }
+int APS5_VABI scePadSetButtonRemappingInfo() { return PAD_OK; }
+int APS5_VABI scePadSetConnection() { return PAD_OK; }
+int APS5_VABI scePadSetExtensionReport() { return PAD_OK; }
+int APS5_VABI scePadSetFeatureReport() { return PAD_OK; }
+int APS5_VABI scePadSetFeatureReport2() { return PAD_OK; }
+int APS5_VABI scePadSetForceIntercepted() { return PAD_OK; }
+int APS5_VABI scePadSetLightBarBaseBrightness() { return PAD_OK; }
+int APS5_VABI scePadSetLightBarBlinking() { return PAD_OK; }
+int APS5_VABI scePadSetLightBarForTracker() { return PAD_OK; }
+int APS5_VABI scePadSetLoginUserNumber() { return PAD_OK; }
+int APS5_VABI scePadSetProcessFocus() { return PAD_OK; }
+int APS5_VABI scePadSetProcessPrivilegeOfButtonRemapping() { return PAD_OK; }
+int APS5_VABI scePadSetShareButtonMaskForRemotePlay() { return PAD_OK; }
+int APS5_VABI scePadSetUserColor() { return PAD_OK; }
+int APS5_VABI scePadSetUserNumber() { return PAD_OK; }
+int APS5_VABI scePadSetVibrationForce() { return PAD_OK; }
+int APS5_VABI scePadSetVrTrackingMode() { return PAD_OK; }
+int APS5_VABI scePadShareOutputData() { return PAD_OK; }
+int APS5_VABI scePadStartRecording() { return PAD_OK; }
+int APS5_VABI scePadStopRecording() { return PAD_OK; }
+int APS5_VABI scePadSwitchConnection() { return PAD_OK; }
+int APS5_VABI scePadTrackerCalibrate() { return PAD_OK; }
+int APS5_VABI scePadTrackerGetWorkingMemorySize() { return PAD_OK; }
+int APS5_VABI scePadTrackerInit() { return PAD_OK; }
+int APS5_VABI scePadTrackerReadState() { return PAD_OK; }
+int APS5_VABI scePadTrackerTerm() { return PAD_OK; }
+int APS5_VABI scePadTrackerUpdate() { return PAD_OK; }
+int APS5_VABI scePadVertualDeviceAddDevice() { return PAD_OK; }
+int APS5_VABI scePadVirtualDeviceAddDevice() { return PAD_OK; }
+int APS5_VABI scePadVirtualDeviceDeleteDevice() { return PAD_OK; }
+int APS5_VABI scePadVirtualDeviceDisableButtonRemapping() { return PAD_OK; }
+int APS5_VABI scePadVirtualDeviceGetRemoteSetting() { return PAD_OK; }
+int APS5_VABI scePadVirtualDeviceInsertData() { return PAD_OK; }
+int APS5_VABI scePadVrControllerGetDeviceInformation() { return PAD_OK; }
+int APS5_VABI scePadVrControllerGetTriggerEffectState() { return PAD_OK; }
+int APS5_VABI scePadVrControllerGetTriggerEffectStates() { return PAD_OK; }
+int APS5_VABI scePadVrControllerRead() { return PAD_OK; }
+int APS5_VABI scePadVrControllerReadCombinedState() { return PAD_OK; }
+int APS5_VABI scePadVrControllerReadState() { return PAD_OK; }
+int APS5_VABI scePadVrControllerSetTriggerEffect() { return PAD_OK; }
+int APS5_VABI scePadVrControllerSetTriggerEffects() { return PAD_OK; }
+int APS5_VABI scePadVrControllerSetVibration() { return PAD_OK; }
+int APS5_VABI scePadVrControllerSetVibrationMode() { return PAD_OK; }
+}
+
