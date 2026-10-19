@@ -423,13 +423,21 @@ namespace RyGT
             background = LoadBackground();
             if (background != null) ResizeRedraw = true;
 
+            var scroll = new Panel
+            {
+                Name = "launcherScroll", Dock = DockStyle.Fill, AutoScroll = true,
+                BackColor = Color.Transparent, AutoScrollMargin = new Size(0, 12)
+            };
+            Controls.Add(scroll);
             var column = new TableLayoutPanel
             {
-                Dock = DockStyle.Left, Width = 1220, ColumnCount = 1, Padding = new Padding(24, 18, 10, 14),
-                BackColor = Color.Transparent, AutoScroll = true
+                Name = "launcherContent", Dock = DockStyle.Top, AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink, MinimumSize = new Size(1220, 0),
+                ColumnCount = 1, Padding = new Padding(24, 18, 10, 14),
+                BackColor = Color.Transparent
             };
             column.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            Controls.Add(column);
+            scroll.Controls.Add(column);
 
             var title = new Label { Text = "ryGT", AutoSize = true, BackColor = Color.Transparent, Font = new Font("Segoe UI Semibold", 22f), Margin = new Padding(0, 0, 0, 0) };
             var subtitle = new Label
@@ -611,6 +619,38 @@ namespace RyGT
             controlButtons.Controls.Add(portsButton);
             controlButtons.Controls.Add(bindingsButton);
             controls.Controls.Add(controlButtons);
+            var triggerLabel = new Label
+            {
+                AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 8, 0, 0),
+                Text = "Trigger strength"
+            };
+            var triggerStrength = new TrackBar
+            {
+                Name = "triggerStrength", Minimum = 0, Maximum = 200, TickFrequency = 25,
+                SmallChange = 5, LargeChange = 25, AutoSize = false, Height = 36, Dock = DockStyle.Fill,
+                Value = Math.Max(0, Math.Min(200, ReadIntSetting("Input", "trigger_strength", 100))),
+                AccessibleName = "Trigger feedback strength", Margin = new Padding(0)
+            };
+            Action updateTriggerLabel = delegate
+            {
+                triggerLabel.Text = "Trigger strength: " + triggerStrength.Value + "%" +
+                                    (triggerStrength.Value == 0 ? " (off)" : "");
+            };
+            updateTriggerLabel();
+            triggerStrength.ValueChanged += delegate
+            {
+                updateTriggerLabel();
+                try { WriteSetting("Input", "trigger_strength", triggerStrength.Value); }
+                catch (Exception e) { MessageBox.Show(this, "Could not save trigger strength: " + e.Message); }
+            };
+            controls.Controls.Add(triggerLabel);
+            controls.Controls.Add(triggerStrength);
+            controls.Controls.Add(new Label
+            {
+                AutoSize = true, MaximumSize = new Size(360, 0), BackColor = Color.Transparent,
+                Text = "0% off, 100% standard, 200% boosted. Updates while playing.",
+                ForeColor = Dark.DimText, Tag = "heading", Margin = new Padding(0, 0, 0, 2)
+            });
 
             // The direct renderer (shaders read game memory in place; Tokyo rain 42.7 fps vs 32.1)
             // is the only renderer since 2026-10-16; the old renderer's stored shaders stand in
@@ -684,7 +724,7 @@ namespace RyGT
             {
                 if (control != bottom) column.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             }
-            column.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            column.RowStyles.Add(new RowStyle(SizeType.Absolute, 140));
 
             Dark.Apply(this);
             subtitle.ForeColor = Dark.DimText;
