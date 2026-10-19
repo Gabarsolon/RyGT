@@ -45,6 +45,87 @@ ForceSlot forceSlots[4];
 bool autocenter = true;
 int commandsLogged = 0;
 
+// A Fanatec wheel's effect slots, as set by the title's Fanatec SDK. Each report holds one
+// 7-byte command after the report id: byte 0 is slot << 4 | 0x01 to play (0x03 to stop),
+// byte 1 the effect type (0x08 constant, 0x0b spring, 0x0c damper / inertia / friction).
+struct FanatecSlot {
+    bool playing = false;
+    std::uint8_t command[7]{};
+};
+FanatecSlot fanatecSlots[16];
+bool fanatecDriven = false;  // the title has sent effects (the startup spring is off)
+
+WheelForces DecodeFanatec(int fallbackSpring) {
+    WheelForces result;
+    result.active = true;
+    bool anySpring = false;
+    for (int index = 0; index < 16; ++index) {
+        const FanatecSlot& slot = fanatecSlots[index];
+        if (!slot.playing) continue;
+        const std::uint8_t* c = slot.command;
+        switch (c[1]) {
+            case 0x08:  // constant: unsigned around 0x80, or (byte 6 = 1) 16 bits around 0x8000
+                result.constant += c[6] == 1 ? (c[2] | c[3] << 8) - 0x8000 : (static_cast<int>(c[2]) - 0x80) * 256;
+                break;
+            case 0x0b: {  // spring: deadband edges (0x80 = centre), stiffness nibbles (0-15), saturation
+                const int k = std::max(c[4] >> 4, c[4] & 0x0f);
+                result.spring = std::max(result.spring, k * 32767 / 15);
+                result.springCenter = ((static_cast<int>(c[2]) + static_cast<int>(c[3])) / 2 - 0x80) * 256;
+                result.springLimit = c[6] != 0 ? c[6] * 0xFFFF / 0xFF : 0xFFFF;
+                anySpring = true;
+                break;
+            }
+            case 0x0c: {  // damper-like: coefficients (0-15) at bytes 2 and 4, signs at 3 and 5
+                const int k = std::max(c[2] & 0x0f, c[4] & 0x0f) * 32767 / 15;
+                if (index == 4) result.friction = std::max(result.friction, k);
+                else if (index != 3) result.damper = std::max(result.damper, k);  // slot 3 is inertia
+                break;
+            }
+            default: break;
+        }
+    }
+    if (!anySpring && !fanatecDriven) result.spring = fallbackSpring;
+    result.constant = std::clamp(result.constant, -32767, 32767);
+    return result;
+}
+
+void LogFanatec(const std::uint8_t* report, const char* note) {
+    if (commandsLogged++ >= 300) return;
+    APS5_LOG_OUT("Pad: fanatec ffb [%02x] %02x %02x %02x %02x %02x %02x %02x%s", report[0], report[1], report[2], report[3], report[4],
+        report[5], report[6], report[7], note);
+}
+
+int FallbackSpring() {
+    const char* text = std::getenv("RTY_WHEEL_SPRING");
+    return 0x7FFF * std::clamp(std::atoi(text != nullptr ? text : "30"), 0, 100) / 100;
+}
+
+void FanatecReport(const std::uint8_t* report, std::size_t length) {
+    std::uint8_t r[8]{};
+    std::memcpy(r, report, std::min<std::size_t>(length, 8));
+    const std::uint8_t* c = r + 1;
+    const std::uint8_t first = c[0];
+    if ((first & 0x0f) == 0x01 || (first & 0x0f) == 0x03) {
+        FanatecSlot& slot = fanatecSlots[first >> 4];
+        const bool stop = (first & 0x02) != 0;
+        // Log a slot's command when it starts, stops or changes type (not every force update).
+        const bool news = slot.playing == stop || slot.command[1] != c[1];
+        slot.playing = !stop;
+        std::memcpy(slot.command, c, 7);
+        fanatecDriven = true;
+        if (news) LogFanatec(r, stop ? " (stop)" : "");
+    } else {
+        LogFanatec(r, first == 0xf8 ? " (extended)" : " (not handled)");
+    }
+    static int updates = 0;
+    if (++updates % 2000 == 0) {
+        const WheelForces f = DecodeFanatec(0);
+        APS5_LOG_OUT("Pad: fanatec ffb: %d reports, constant %d spring %d damper %d friction %d", updates, f.constant, f.spring, f.damper,
+            f.friction);
+    }
+    if (WheelInput* input = wheel.load()) input->SetForces(DecodeFanatec(FallbackSpring()));
+}
+
 void LogCommand(const std::uint8_t* command, const char* note) {
     if (commandsLogged++ >= 200) return;
     APS5_LOG_OUT("Pad: wheel ffb %02x %02x %02x %02x %02x %02x %02x %02x%s", command[0], command[1], command[2], command[3], command[4],
@@ -153,6 +234,10 @@ void SetWheelOpened(bool opened) {
 void WheelReport(const std::uint8_t* report, std::size_t length) {
     if (report == nullptr || length < 2) return;
     std::lock_guard lock(forceMutex);
+    if (Wheel().IsFanatec()) {
+        FanatecReport(report, length);
+        return;
+    }
     // Byte 0 is the report id; the rest holds 8-byte commands.
     for (std::size_t offset = 1; offset + 8 <= length; offset += 8) {
         const std::uint8_t* c = report + offset;
@@ -186,8 +271,22 @@ void WheelReport(const std::uint8_t* report, std::size_t length) {
         LogCommand(c, "");
     }
     if (WheelInput* input = wheel.load()) {
-        input->SetForces(DecodeForces(0x7FFF * std::clamp(std::atoi(std::getenv("RTY_WHEEL_SPRING") ? std::getenv("RTY_WHEEL_SPRING") : "30"), 0, 100) / 100));
+        input->SetForces(DecodeForces(FallbackSpring()));
     }
+}
+
+bool WheelFeatureReport(int reportId, std::uint8_t* report, std::size_t length) {
+    if (!Wheel().IsFanatec() || reportId != 0x31 || report == nullptr) return false;
+    // What the SDK reads: byte 3 the rim (1-18), bytes 7-8 the base's firmware version (big
+    // endian; 16-bit constant forces need 674 or later), the rest settings left at zero.
+    std::uint8_t config[64]{};
+    config[0] = 0x31;
+    config[2] = 0x01;
+    config[3] = 0x01;
+    config[7] = 0x02;
+    config[8] = 0xb0;  // firmware 688
+    std::memcpy(report, config, std::min<std::size_t>(length, sizeof(config)));
+    return true;
 }
 
 WheelState ReadWheel() {

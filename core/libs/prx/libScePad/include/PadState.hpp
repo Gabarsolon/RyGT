@@ -79,6 +79,9 @@ WheelState ReadWheel();
 void SetWheelOpened(bool opened);
 // A force-feedback output report the title sent to the wheel (Logitech classic commands).
 void WheelReport(const std::uint8_t* report, std::size_t length);
+// A Fanatec wheel's configuration (feature report 0x31), as the title's Fanatec SDK reads it.
+// Returns false when the wheel is not presented as a Fanatec wheel.
+bool WheelFeatureReport(int reportId, std::uint8_t* report, std::size_t length);
 // Waits up to the given time for the wheel thread's first sample; false if it is not ready.
 bool WaitForWheel(int milliseconds);
 
@@ -90,6 +93,7 @@ struct WheelSettings {
     // The wheel model the game is told it has (a Logitech G29 by default).
     unsigned vendor = 0x046d;
     unsigned product = 0xc24f;
+    bool IsFanatec() const { return vendor == 0x0eb7; }
     int capability = 0;          // steering-wheel capability bits reported to the game
     int ffbGain = 100;           // force feedback strength in percent
     bool ffbInvert = false;      // reverse the direction of the title's constant forces

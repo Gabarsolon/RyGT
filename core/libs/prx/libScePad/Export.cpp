@@ -15,6 +15,7 @@
 namespace {
 
 constexpr int PAD_ERROR_DEVICE_NO_HANDLE = static_cast<int>(0x80920008);
+constexpr int PAD_ERROR_ALREADY_OPENED = static_cast<int>(0x80920004);
 
 constexpr int USER_ID_FIRST = 0x10000000; // libSceUserService's player 1
 
@@ -276,7 +277,11 @@ int APS5_VABI scePadOpenExt(int userId, int type, int index, const std::uint16_t
  const unsigned last = product2 != 0 ? product2 : product;
  const bool wanted = vendor == settings.vendor && settings.product >= product && settings.product <= last;
  int result;
- if (!wheel.connected || g_wheelOpened || !wanted) {
+ if (wheel.connected && g_wheelOpened && wanted && settings.IsFanatec()) {
+  // The Fanatec SDK checks for the wheel now and then by opening it again; on a PS4 the wheel
+  // it already has open still counts.
+  result = PAD_ERROR_ALREADY_OPENED;
+ } else if (!wheel.connected || g_wheelOpened || !wanted) {
   result = PAD_ERROR_DEVICE_NOT_CONNECTED;
  } else {
   g_wheelOpened = true;
@@ -322,9 +327,10 @@ int APS5_VABI scePadReadExt(int handle, PadData* data, int num) {
 // Force feedback and wheel configuration reach a PS4 wheel as raw HID reports through these.
 // Their arguments are not documented, so they are logged and accepted for now.
 // scePadOutputReport(handle, report id, report, length): logiWheel sends the G29's force
-// feedback as report 0x30, a report-id byte followed by Logitech classic 8-byte commands.
+// feedback as report 0x30, a report-id byte followed by Logitech classic 8-byte commands; the
+// Fanatec SDK sends one 7-byte command per report 0x30 (0x34 for some).
 int APS5_VABI scePadOutputReport(std::uint64_t a, std::uint64_t b, std::uint64_t c, std::uint64_t d) {
- if (static_cast<int>(a) == PAD_WHEEL_HANDLE && b == 0x30 && c > 0x10000 && d >= 2 && d <= 64 && Pad::Readable(reinterpret_cast<const void*>(c), d)) {
+ if (static_cast<int>(a) == PAD_WHEEL_HANDLE && (b == 0x30 || b == 0x34) && c > 0x10000 && d >= 2 && d <= 64 && Pad::Readable(reinterpret_cast<const void*>(c), d)) {
   Pad::WheelReport(reinterpret_cast<const std::uint8_t*>(c), static_cast<std::size_t>(d));
  }
  static int calls = 0;
@@ -339,6 +345,12 @@ int APS5_VABI scePadOutputReport(std::uint64_t a, std::uint64_t b, std::uint64_t
 
 int APS5_VABI scePadGetFeatureReport(std::uint64_t a, std::uint64_t b, std::uint64_t c, std::uint64_t d) {
  static int calls = 0;
+ if (static_cast<int>(a) == PAD_WHEEL_HANDLE && g_wheelOpened && c > 0x10000 && d >= 1 && d <= 256 &&
+  Pad::WheelFeatureReport(static_cast<int>(b), reinterpret_cast<std::uint8_t*>(c), static_cast<std::size_t>(d))) {
+  if (LogCall(calls, 20)) APS5_LOG_OUT("Pad: scePadGetFeatureReport(report 0x%llx, length %llu) -> wheel configuration",
+   static_cast<unsigned long long>(b), static_cast<unsigned long long>(d));
+  return PAD_OK;
+ }
  if (LogCall(calls, 20)) {
   APS5_LOG_OUT("Pad: scePadGetFeatureReport(0x%llx, 0x%llx, 0x%llx, 0x%llx) -> not supported", static_cast<unsigned long long>(a),
    static_cast<unsigned long long>(b), static_cast<unsigned long long>(c), static_cast<unsigned long long>(d));
