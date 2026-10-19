@@ -28,6 +28,11 @@ namespace RyGT
 
         [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
         public static extern int SetWindowTheme(IntPtr window, string appName, string idList);
+
+        [DllImport("d3d11.dll", CallingConvention = CallingConvention.StdCall)]
+        public static extern int D3D11CreateDevice(IntPtr adapter, int driverType, IntPtr software,
+            uint flags, IntPtr featureLevels, uint featureLevelsCount, uint sdkVersion,
+            out IntPtr device, out int featureLevel, out IntPtr immediateContext);
     }
 
     /// Dark colors for the loader window.
@@ -1581,18 +1586,114 @@ namespace RyGT
             status.Text = "GT Sport is starting. Logs: logs\\stdout.log and logs\\stderr.log.";
         }
 
-        /// Starts GTSport.exe from root, as a double-click would: the runtime and renderer default to the
-        /// settings GT Sport needs, and without standard output the game writes stdout.log and
-        /// stderr.log itself, under logs with timestamped archives.
+        /// Starts GTSport.exe with session log rotation and waits for GPU recovery if Vulkan loses
+        /// its device.
         static void StartGame(string root)
         {
             string exe = Path.Combine(root, "GTSport.exe");
             // Folders set up by an earlier RyGT.exe get the icon and the Windows subsystem now.
             try { if (!GameExe.IsPrepared(exe)) GameExe.Prepare(exe); } catch { }
-            string logDirectory = LogFiles.PrepareRuntimeLogs(root);
-            var start = new ProcessStartInfo(exe) { WorkingDirectory = root, UseShellExecute = false };
-            start.EnvironmentVariables["RYGT_LOG_DIRECTORY"] = logDirectory;
-            Process.Start(start);
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                bool recoveredOnce = false;
+                while (true)
+                {
+                    string logDirectory;
+                    try
+                    {
+                        logDirectory = LogFiles.PrepareRuntimeLogs(root);
+                    }
+                    catch (Exception e)
+                    {
+                        AppendSetupLog(root, "Could not prepare game logs: " + e.Message);
+                        return;
+                    }
+
+                    Process started;
+                    try
+                    {
+                        var start = new ProcessStartInfo(exe)
+                        { WorkingDirectory = root, UseShellExecute = false };
+                        start.EnvironmentVariables["RYGT_LOG_DIRECTORY"] = logDirectory;
+                        started = Process.Start(start);
+                    }
+                    catch (Exception e)
+                    {
+                        AppendSetupLog(root, "Could not start GT Sport: " + e.Message);
+                        return;
+                    }
+                    if (started == null) return;
+                    using (Process game = started) game.WaitForExit();
+
+                    if (recoveredOnce || !RendererReportedDeviceLoss(logDirectory)) return;
+                    recoveredOnce = true;
+                    AppendSetupLog(root, "Vulkan lost the GPU device. Waiting for Windows to restore the graphics device before restarting GT Sport.");
+                    if (!WaitForGraphicsDevice(TimeSpan.FromMinutes(2)))
+                    {
+                        AppendSetupLog(root, "The graphics device did not recover within 2 minutes; GT Sport was not restarted.");
+                        return;
+                    }
+                    AppendSetupLog(root, "The graphics device is responding again. Restarting GT Sport once; the interrupted session cannot be resumed.");
+                }
+            });
+        }
+
+        static bool RendererReportedDeviceLoss(string logDirectory)
+        {
+            string path = Path.Combine(logDirectory, "stdout.log");
+            try
+            {
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete))
+                {
+                    int count = (int)Math.Min(stream.Length, 1024 * 1024);
+                    stream.Seek(-count, SeekOrigin.End);
+                    byte[] bytes = new byte[count];
+                    int read = 0;
+                    while (read < bytes.Length)
+                    {
+                        int n = stream.Read(bytes, read, bytes.Length - read);
+                        if (n == 0) break;
+                        read += n;
+                    }
+                    string tail = Encoding.UTF8.GetString(bytes, 0, read);
+                    return tail.IndexOf("ErrorDeviceLost", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                           tail.IndexOf("Device lost", StringComparison.OrdinalIgnoreCase) >= 0;
+                }
+            }
+            catch { return false; }
+        }
+
+        static bool WaitForGraphicsDevice(TimeSpan timeout)
+        {
+            var deadline = DateTime.UtcNow + timeout;
+            while (DateTime.UtcNow < deadline)
+            {
+                IntPtr device = IntPtr.Zero, context = IntPtr.Zero;
+                try
+                {
+                    // A fresh hardware D3D11 device is a small probe that the Windows display
+                    // driver has recovered. Driver type 1 is HARDWARE; SDK version is 7.
+                    int featureLevel;
+                    int result = Native.D3D11CreateDevice(IntPtr.Zero, 1, IntPtr.Zero, 0,
+                        IntPtr.Zero, 0, 7, out device, out featureLevel, out context);
+                    if (result >= 0) return true;
+                }
+                catch { }
+                finally
+                {
+                    if (context != IntPtr.Zero) Marshal.Release(context);
+                    if (device != IntPtr.Zero) Marshal.Release(device);
+                }
+                Thread.Sleep(2000);
+            }
+            return false;
+        }
+
+        static void AppendSetupLog(string root, string line)
+        {
+            try { File.AppendAllText(Path.Combine(root, "setup.log"), line + Environment.NewLine); }
+            catch { }
         }
 
         [STAThread]
