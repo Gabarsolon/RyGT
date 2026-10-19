@@ -370,6 +370,7 @@ namespace RyGT
     class Settings
     {
         public string Game = "", Update = "", Modules = "", Fonts = "";
+        public string StdoutLevel = "Warning";
         readonly string path;
 
         public Settings(string path)
@@ -385,12 +386,13 @@ namespace RyGT
                 else if (key == "update") Update = value;
                 else if (key == "modules") Modules = value;
                 else if (key == "fonts") Fonts = value;
+                else if (key == "stdout_level") StdoutLevel = LogFiles.Levels[LogFiles.LevelIndex(value)];
             }
         }
 
         public void Save()
         {
-            File.WriteAllLines(path, new[] { "game=" + Game, "update=" + Update, "modules=" + Modules, "fonts=" + Fonts });
+            File.WriteAllLines(path, new[] { "game=" + Game, "update=" + Update, "modules=" + Modules, "fonts=" + Fonts, "stdout_level=" + StdoutLevel });
         }
     }
 
@@ -695,6 +697,23 @@ namespace RyGT
                 catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
             };
 
+            var logging = Section(third, "Logging");
+            logging.Controls.Add(new Label { Text = "stdout.log minimum level", AutoSize = true,
+                BackColor = Color.Transparent, Margin = new Padding(0, 0, 0, 4) });
+            var logLevel = new ComboBox { Width = 170, DropDownStyle = ComboBoxStyle.DropDownList,
+                FlatStyle = FlatStyle.Flat, BackColor = Dark.Field, ForeColor = Dark.Text };
+            logLevel.Items.AddRange(LogFiles.Levels);
+            logLevel.SelectedIndex = LogFiles.LevelIndex(settings.StdoutLevel);
+            logLevel.SelectedIndexChanged += delegate
+            {
+                if (logLevel.SelectedIndex < 0) return;
+                settings.StdoutLevel = LogFiles.Levels[logLevel.SelectedIndex];
+                try { settings.Save(); }
+                catch (Exception e) { MessageBox.Show(this, "Could not save the logging level: " + e.Message); }
+            };
+            logging.Controls.Add(logLevel);
+            logging.Controls.Add(new Label { Text = "Selected level and below, on the next launch.\nAll logs are in the logs folder; previous logs are timestamped.",
+                AutoSize = true, MaximumSize = new Size(360, 0), BackColor = Color.Transparent, Margin = new Padding(0, 4, 0, 0) });
             column.Controls.Add(grid);
 
             // Actions on the left; the status line and the log to their right.
@@ -1104,18 +1123,28 @@ namespace RyGT
         }
 
         readonly object logLock = new object();
+        string setupLogPath;
 
         void Log(string line)
         {
             lock (logLock)
             {
-                try { File.AppendAllText(Path.Combine(root, "setup.log"), line + Environment.NewLine); } catch { }
+                try
+                {
+                    if (setupLogPath == null) setupLogPath = LogFiles.Prepare(root, "setup.log");
+                    File.AppendAllText(setupLogPath, line + Environment.NewLine);
+                }
+                catch { }
             }
-            if (!IsHandleCreated) return;
-            if (InvokeRequired) { BeginInvoke(new Action<string>(Log), line); return; }
-            log.AppendText(line + Environment.NewLine);
+            if (!IsHandleCreated || IsDisposed) return;
+            if (InvokeRequired) { BeginInvoke(new Action<string>(AppendLogText), line); return; }
+            AppendLogText(line);
         }
 
+        void AppendLogText(string line)
+        {
+            if (!IsDisposed) log.AppendText(line + Environment.NewLine);
+        }
         void SetStatus(string text)
         {
             Log("== " + text);
@@ -1132,8 +1161,7 @@ namespace RyGT
         /// RyGT.exe --setup: the same set up without the window, from the folders in RyGT.ini.
         public int SetupWithoutWindow()
         {
-            try { File.Delete(Path.Combine(root, "setup.log")); } catch { }
-            try { RunSetup(); return 0; }
+            try { setupLogPath = LogFiles.Prepare(root, "setup.log"); RunSetup(); return 0; }
             catch (Exception e) { Log("ERROR: " + e.Message); return 1; }
         }
 
@@ -1144,10 +1172,11 @@ namespace RyGT
             settings.Modules = modules.Text.Trim();
             settings.Fonts = fonts.Text.Trim();
             try { settings.Save(); } catch { }
+            try { setupLogPath = LogFiles.Prepare(root, "setup.log"); }
+            catch (Exception e) { MessageBox.Show(this, "Could not prepare setup log: " + e.Message); return; }
             busy = true;
             RefreshState();
             log.Clear();
-            try { File.Delete(Path.Combine(root, "setup.log")); } catch { }
             var thread = new Thread(delegate ()
             {
                 bool ok = false;
@@ -1548,18 +1577,21 @@ namespace RyGT
                 catch (Exception e) { Log("Shaders: " + e.Message); }
             }
             StartGame(root);
-            status.Text = "GT Sport is starting. Logs: stdout.log and stderr.log in the RyGT folder.";
+            status.Text = "GT Sport is starting. Logs: logs\\stdout.log and logs\\stderr.log.";
         }
 
         /// Starts GTSport.exe from root, as a double-click would: the runtime and renderer default to the
         /// settings GT Sport needs, and without standard output the game writes stdout.log and
-        /// stderr.log itself.
+        /// stderr.log itself, under logs with timestamped archives.
         static void StartGame(string root)
         {
             string exe = Path.Combine(root, "GTSport.exe");
             // Folders set up by an earlier RyGT.exe get the icon and the Windows subsystem now.
             try { if (!GameExe.IsPrepared(exe)) GameExe.Prepare(exe); } catch { }
-            Process.Start(new ProcessStartInfo(exe) { WorkingDirectory = root, UseShellExecute = true });
+            string logDirectory = LogFiles.PrepareRuntimeLogs(root);
+            var start = new ProcessStartInfo(exe) { WorkingDirectory = root, UseShellExecute = false };
+            start.EnvironmentVariables["RYGT_LOG_DIRECTORY"] = logDirectory;
+            Process.Start(start);
         }
 
         [STAThread]

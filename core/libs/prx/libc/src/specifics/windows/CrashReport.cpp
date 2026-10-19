@@ -1,6 +1,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #include "prx/libc/include/GuestArena.hpp"
+#include "prx/libc/include/LogFiles.hpp"
 #include <algorithm>
 #include <atomic>
 #include <exception>
@@ -20,8 +21,9 @@
 namespace {
 
 // RyGT: GTSport.exe is a Windows (GUI) program, so a double-click starts it without standard input,
-// output or error. Then input reads NUL and output and error go to stdout.log and stderr.log next to
-// the executable. The CRT descriptors 0-2 and the Win32 handles follow, because the game's own
+// output or error. Then input reads NUL; stdout.log and stderr.log go under logs next to
+// the executable, archiving previous sessions. The CRT descriptors 0-2 and Win32 handles follow,
+// because the game's own
 // writes reach fd 1 through sceKernelWrite (which failed with EBADF and threw) and crash reports
 // write to the stderr handle. Runs when libc.prx loads, before the game starts.
 void RedirectDetachedStream(DWORD id, FILE* stream, int fd, const char* name, const char* mode) {
@@ -31,13 +33,13 @@ void RedirectDetachedStream(DWORD id, FILE* stream, int fd, const char* name, co
     if (std::strcmp(name, "NUL") != 0) {
         const DWORD length = GetModuleFileNameA(nullptr, path, MAX_PATH);
         if (length == 0 || length >= MAX_PATH) return;
-        char* slash = std::strrchr(path, '\\');
-        if (!slash || static_cast<std::size_t>(slash - path) + 1 + std::strlen(name) >= MAX_PATH) return;
-        std::strcpy(slash + 1, name);
+        const auto log = RuntimeLogFiles::Prepare(std::filesystem::path(path).parent_path(), name, true);
+        if (log.empty() || log.string().size() >= MAX_PATH) return;
+        std::strcpy(path, log.string().c_str());
     }
     if (!std::freopen(path, mode, stream)) return;
     if (_fileno(stream) != fd) _dup2(_fileno(stream), fd);
-    if (stream == stderr) std::setvbuf(stream, nullptr, _IONBF, 0);
+    if (stream == stdout || stream == stderr) std::setvbuf(stream, nullptr, _IONBF, 0);
     SetStdHandle(id, reinterpret_cast<HANDLE>(_get_osfhandle(fd)));
 }
 
