@@ -11,16 +11,17 @@ static void Require(bool value, const char* message) {
 int main() {
     namespace fs = std::filesystem;
     using namespace Common::Log;
+    Require(StdoutLevel::Names.size() == 5 && StdoutLevel::Parse("Critical") == 4, "Critical maps to Error");
     for (unsigned minimum = 0; minimum < StdoutLevel::Names.size(); ++minimum) {
         Require(StdoutLevel::Parse(StdoutLevel::Names[minimum]) == minimum, "severity parsing");
         for (unsigned message = 0; message < StdoutLevel::Names.size(); ++message)
             Require(StdoutLevel::Enabled(message, minimum) == (message >= minimum), "severity threshold");
     }
-    Require(StdoutLevel::Parse("invalid") == 4 && StdoutLevel::Parse(" warning \r") == 3, "Error default");
+    Require(StdoutLevel::Parse("invalid") == 3 && StdoutLevel::Parse(" warning \r") == 3, "Warning default");
     const auto root = fs::temp_directory_path() / ("RyGT-portable-logs" + RuntimeLogFiles::Timestamp());
     Require(fs::create_directory(root), "unique test directory");
     try {
-        Require(StdoutLevel::Read(root / "missing.ini") == 4, "missing setting default");
+        Require(StdoutLevel::Read(root / "missing.ini") == 3, "missing setting default");
         { std::ofstream settings(root / "RyGT.ini"); settings << "game=test\nstdout_level= DEBUG\r\n"; }
         Require(StdoutLevel::Read(root / "RyGT.ini") == 1, "persisted threshold");
         for (const auto* name : {"stdout.log", "stderr.log", "setup.log"}) {
@@ -46,5 +47,5 @@ int main() {
         }
         fs::remove_all(root);
     } catch (...) { fs::remove_all(root); throw; }
-    std::cout << "PASS: portable severity gates, Error default, config, folder creation, migration and rotation\n";
+    std::cout << "PASS: portable severity gates, Warning default, config, folder creation, migration and rotation\n";
 }

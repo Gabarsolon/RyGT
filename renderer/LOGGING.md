@@ -1,15 +1,15 @@
 # Logging
 
 The launcher dropdown selects the minimum severity written by the renderer to
-`stdout.log`: Trace, Debug, Info, Warning, Error, or Critical. Error is the
-default; it includes Error and Critical. A missing or invalid setting
-also uses Error. Changes take effect on the next game launch.
+`stdout.log`: Trace, Debug, Info, Warning, or Error. Warning is the
+default. Critical diagnostics are emitted as Error; legacy Critical settings map to Error. A missing or invalid setting
+also uses Warning. Changes take effect on the next game launch.
 
-The selection is stored as `stdout_level=Error` in `RyGT.ini`. The renderer
+The selection is stored as `stdout_level=Warning` in `RyGT.ini`. The renderer
 reads this file from the game's working directory, which the launcher sets to
 the package directory. Other launchers should use that working directory too.
 
-ShadGT stdout is diagnostic output and is enabled only at Trace or Debug. At Info, Warning, Error, or Critical, all ShadGT stdout messages are suppressed. When enabled, messages retain their original severity and the selected threshold still applies.
+ShadGT stdout is diagnostic output and is enabled only at Trace or Debug. At Info, Warning, or Error, all ShadGT stdout messages are suppressed. When enabled, messages retain their original severity and the selected threshold still applies.
 Its existing internal log files keep their independent class filters. Native file-open and thread-start diagnostics are Trace; other native stdout diagnostics are Debug. Raw game stdout remains unchanged. `stderr.log` and `setup.log`
 are never severity-filtered.
 
@@ -37,7 +37,7 @@ helper.
 Rebuild the launcher and libc. The renderer is a separate build: apply
 `renderer/shadGT-patches/0019-leveled-stdout-logging.patch` to shadGT `ryty-gpu`
 at `afc9e36cdcf1601336776147893581650410569e` (which already contains patches
-0001 through 0018), then apply `0020-fix-host-library-linking.patch` and `0021-default-stdout-error.patch`, then `0022-gate-shadgt-stdout-at-debug.patch` and rebuild the host libraries. An older prebuilt renderer does
+0001 through 0018), then apply `0020-fix-host-library-linking.patch` and `0021-default-stdout-error.patch`, then `0022-gate-shadgt-stdout-at-debug.patch`, then `0023-merge-critical-into-error.patch`, then `0024-default-stdout-warning.patch` and rebuild the host libraries. An older prebuilt renderer does
 not implement `stdout_level`.
 
 With libc tests enabled, `ctest -R '^log_files$' --output-on-failure` checks

@@ -5,12 +5,13 @@ namespace RyGT
 {
     static class LogFiles
     {
-        internal static readonly string[] Levels = { "Trace", "Debug", "Info", "Warning", "Error", "Critical" };
+        internal static readonly string[] Levels = { "Trace", "Debug", "Info", "Warning", "Error" };
         internal static int LevelIndex(string value)
         {
             for (int i = 0; i < Levels.Length; ++i)
                 if (String.Equals(value, Levels[i], StringComparison.OrdinalIgnoreCase)) return i;
-            return 4; // Error is the default, including invalid settings.
+            if (String.Equals(value, "Critical", StringComparison.OrdinalIgnoreCase)) return 4;
+            return 3; // Warning is the default, including invalid settings.
         }
 
         internal static string ArchiveName(string directory, string name, string stamp)

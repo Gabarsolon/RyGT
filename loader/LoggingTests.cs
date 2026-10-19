@@ -13,7 +13,8 @@ namespace RyGT
 
         static int Main()
         {
-            Check(LogFiles.LevelIndex(null) == 4 && LogFiles.LevelIndex("bad") == 4, "Error default");
+            Check(LogFiles.Levels.Length == 5 && LogFiles.LevelIndex("Critical") == 4, "Critical merged into Error");
+            Check(LogFiles.LevelIndex(null) == 3 && LogFiles.LevelIndex("bad") == 3, "Warning default");
             string root = Path.Combine(Path.GetTempPath(), "RyGT-logging-test-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
             try
@@ -49,21 +50,21 @@ namespace RyGT
                 string ini = Path.Combine(root, "RyGT.ini");
                 var settings = Activator.CreateInstance(settingsType, new object[] { ini });
                 var levelField = settingsType.GetField("StdoutLevel");
-                Check((string)levelField.GetValue(settings) == "Error", "launcher default is Error");
+                Check((string)levelField.GetValue(settings) == "Warning", "launcher default is Warning");
                 levelField.SetValue(settings, "Debug");
                 settingsType.GetMethod("Save").Invoke(settings, null);
                 var restored = Activator.CreateInstance(settingsType, new object[] { ini });
                 Check((string)levelField.GetValue(restored) == "Debug", "launcher level persists");
                 File.WriteAllText(ini, "stdout_level=invalid");
                 restored = Activator.CreateInstance(settingsType, new object[] { ini });
-                Check((string)levelField.GetValue(restored) == "Error", "invalid launcher level falls back to Error");
+                Check((string)levelField.GetValue(restored) == "Warning", "invalid launcher level falls back to Warning");
                 string directory = Path.Combine(root, "logs");
                 File.WriteAllText(Path.Combine(directory, "stdout.log.same"), "keep");
                 Check(LogFiles.ArchiveName(directory, "stdout.log", "same").EndsWith(".same.1"), "timestamp collision suffix");
                 Check(File.ReadAllText(Path.Combine(directory, "stdout.log.same")) == "keep", "archive never overwritten");
             }
             finally { Directory.Delete(root, true); }
-            Console.WriteLine("PASS: Error default, settings persistence, migration and lossless rotation");
+            Console.WriteLine("PASS: Warning default, settings persistence, migration and lossless rotation");
             return 0;
         }
     }

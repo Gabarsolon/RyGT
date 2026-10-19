@@ -370,7 +370,7 @@ namespace RyGT
     class Settings
     {
         public string Game = "", Update = "", Modules = "", Fonts = "";
-        public string StdoutLevel = "Error";
+        public string StdoutLevel = "Warning";
         readonly string path;
 
         public Settings(string path)
