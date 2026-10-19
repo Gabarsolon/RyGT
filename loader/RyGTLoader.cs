@@ -1271,7 +1271,9 @@ namespace RyGT
             if (!BuildGameScripts(baseDir, updateDir))
                 Log("Note: the offline livery scripts could not be made; liveries will not apply offline.");
 
-            // 6. Shaders other players have met, prepared from this game's own files.
+            // 6. Shaders other players have met, prepared from this game's own files, into the
+            // shader folder every RyGT folder shares.
+            UseSharedShaderCache();
             if (File.Exists(ShaderPack))
             {
                 SetStatus("Preparing shaders from your game files (a few minutes)...");
@@ -1551,9 +1553,86 @@ namespace RyGT
                 CopyDirectory(dir, Path.Combine(destination, Path.GetFileName(dir)));
         }
 
+        // Shaders compiled on this PC are kept in one folder that every RyGT folder shares, so a new
+        // release unzipped into a new folder keeps them: user\cache becomes a junction to it. A folder's
+        // own shaders are moved there first (what the shared folder already has stays; of the driver's
+        // pipeline cache file the bigger one stays). A file named "local" in user\cache keeps that
+        // folder's shaders to itself.
+        static string SharedShaderCache
+        {
+            get
+            {
+                return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                                    "RyGT", "shader-cache");
+            }
+        }
+
+        void UseSharedShaderCache()
+        {
+            string local = Path.Combine(root, "user", "cache");
+            try
+            {
+                // (Again each time: a link to a shared folder someone deleted leaves the renderer
+                // nowhere to keep its shaders.)
+                Directory.CreateDirectory(SharedShaderCache);
+                var info = new DirectoryInfo(local);
+                if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0) return;
+                if (File.Exists(Path.Combine(local, "local"))) return;
+                if (info.Exists)
+                {
+                    Log("Moving this folder's shaders to the shared shader folder...");
+                    MergeShaderCache(local, SharedShaderCache);
+                    Directory.Delete(local, true);
+                }
+                Directory.CreateDirectory(Path.GetDirectoryName(local));
+                var link = Process.Start(new ProcessStartInfo("cmd.exe", "/c mklink /J \"" + local + "\" \"" + SharedShaderCache + "\"")
+                {
+                    CreateNoWindow = true, UseShellExecute = false
+                });
+                link.WaitForExit();
+                if (link.ExitCode == 0 && Directory.Exists(local))
+                {
+                    Log("Shaders are kept in " + SharedShaderCache + ", shared by every RyGT folder.");
+                    return;
+                }
+                Directory.CreateDirectory(local);
+                Log("Note: the shared shader folder could not be linked; shaders stay in this folder.");
+            }
+            catch (Exception e)
+            {
+                Log("Note: shared shader folder: " + e.Message);
+                try { Directory.CreateDirectory(local); } catch { }
+            }
+        }
+
+        static void MergeShaderCache(string source, string target)
+        {
+            Directory.CreateDirectory(target);
+            foreach (var file in Directory.GetFiles(source))
+            {
+                string name = Path.GetFileName(file);
+                if (name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)) continue;
+                string destination = Path.Combine(target, name);
+                if (!File.Exists(destination))
+                    File.Move(file, destination);
+                else if (name.EndsWith(".vkpipelinecache", StringComparison.OrdinalIgnoreCase) &&
+                         new FileInfo(file).Length > new FileInfo(destination).Length)
+                    File.Copy(file, destination, true);
+            }
+            foreach (var dir in Directory.GetDirectories(source))
+                MergeShaderCache(dir, Path.Combine(target, Path.GetFileName(dir)));
+        }
+
         void Play()
         {
             if (!File.Exists(Exe)) { MessageBox.Show(this, "Press Set up first."); return; }
+            var cacheDir = new DirectoryInfo(Path.Combine(root, "user", "cache"));
+            if (cacheDir.Exists && (cacheDir.Attributes & FileAttributes.ReparsePoint) == 0)
+            {
+                status.Text = "Moving your shaders to the shared shader folder (once)...";
+                Refresh();
+            }
+            UseSharedShaderCache();
             // Folders set up by an earlier RyGT.exe or adcpatch get the offline livery scripts (again)
             // now (a few seconds).
             if (GameScriptsOutdated() && Directory.Exists(settings.Game))
