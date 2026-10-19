@@ -6,13 +6,17 @@
 #include "prx/libc/include/General.hpp"
 #include "prx/libc/include/GuestAllocations.hpp"
 #include "prx/libkernel/DirectMemory/DirectMemory.hpp"
+#include "prx/libkernel/KernelErrors.hpp"
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 #else
 #include <fstream>
 #include <sstream>
+#include <sys/mman.h>
 #endif
 #include <algorithm>
 #include <stdexcept>
@@ -463,10 +467,12 @@ int APS5_VABI sceKernelBatchMap2(KernelBatchMapEntry* entries, int num_entries, 
 extern "C" {
 
 int APS5_VABI sceKernelMlock_nid_postfix(void* address, std::uint64_t length) {
-    (void)address;
-    (void)length;
-    NotImplemented_nid_no_patch(__func__);
-    return 0;
+    if (!address || length == 0 || length > static_cast<std::uint64_t>(SIZE_MAX)) return SCE_KERNEL_ERROR_EINVAL;
+#ifdef _WIN32
+    return VirtualLock(address, static_cast<SIZE_T>(length)) ? 0 : SCE_KERNEL_ERROR_ENOMEM;
+#else
+    return ::mlock(address, static_cast<std::size_t>(length)) == 0 ? 0 : SCE_KERNEL_ERROR_ENOMEM;
+#endif
 }
 
 int APS5_VABI sceKernelMunlock() {
