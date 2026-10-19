@@ -660,8 +660,8 @@ namespace RyGT
             var logging = Section(third, "Logging");
             logging.Controls.Add(new Label { Text = "stdout.log minimum level", AutoSize = true,
                 BackColor = Color.Transparent, Margin = new Padding(0, 0, 0, 4) });
-            var logLevel = new ListBox { Width = 170, Height = 104, IntegralHeight = false,
-                BorderStyle = BorderStyle.FixedSingle, BackColor = Dark.Field, ForeColor = Dark.Text };
+            var logLevel = new ComboBox { Width = 170, DropDownStyle = ComboBoxStyle.DropDownList,
+                FlatStyle = FlatStyle.Flat, BackColor = Dark.Field, ForeColor = Dark.Text };
             logLevel.Items.AddRange(LogFiles.Levels);
             logLevel.SelectedIndex = LogFiles.LevelIndex(settings.StdoutLevel);
             logLevel.SelectedIndexChanged += delegate

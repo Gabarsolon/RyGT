@@ -1,6 +1,6 @@
 # Logging
 
-The launcher list box selects the minimum severity written by the renderer to
+The launcher dropdown selects the minimum severity written by the renderer to
 `stdout.log`: Trace, Debug, Info, Warning, Error, or Critical. Error is the
 default; it includes Error and Critical. A missing or invalid setting
 also uses Error. Changes take effect on the next game launch.
