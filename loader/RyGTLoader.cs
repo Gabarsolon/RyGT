@@ -589,7 +589,8 @@ namespace RyGT
             controls.Controls.Add(new Label
             {
                 Text = "2 players for Arcade's Split Screen: pick each player's name and controller, " +
-                       "and what each button does.",
+                       "and what each button does. In game, F3 or holding Share + Options " +
+                       "(View + Menu) changes controllers.",
                 AutoSize = true, MaximumSize = new Size(360, 0), BackColor = Color.Transparent, Margin = new Padding(0, 0, 0, 6)
             });
             var controlButtons = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0), WrapContents = true };
@@ -1623,6 +1624,29 @@ namespace RyGT
                         image.Save(args[1], System.Drawing.Imaging.ImageFormat.Png);
                     }
                     form.Close();
+                }
+                return 0;
+            }
+            if (args.Length == 2 && args[0] == "--snapshot-previews")
+            {
+                // The controller preview's layouts side by side as a PNG, some controls pressed.
+                var kinds = new[] { PadKind.DualShock4, PadKind.DualSense, PadKind.Xbox, PadKind.Generic };
+                using (var image = new Bitmap(420 * kinds.Length, 290))
+                {
+                    for (int i = 0; i < kinds.Length; ++i)
+                    {
+                        using (var preview = new ControllerPreview
+                        {
+                            Kind = kinds[i], Connected = i != 3, Caption = kinds[i].ToString(), Size = new Size(420, 290),
+                            Cross = true, R1 = true, PadLeft = true, LX = -0.8f, RY = 0.6f, L2 = 0.5f, R2 = 1f
+                        })
+                        using (var tile = new Bitmap(420, 290))
+                        {
+                            preview.DrawToBitmap(tile, new Rectangle(0, 0, 420, 290));
+                            using (var g = Graphics.FromImage(image)) g.DrawImage(tile, 420 * i, 0);
+                        }
+                    }
+                    image.Save(args[1], System.Drawing.Imaging.ImageFormat.Png);
                 }
                 return 0;
             }

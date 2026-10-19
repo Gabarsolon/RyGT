@@ -105,12 +105,21 @@ namespace RyGT
         }
     }
 
-    /// A PS4 controller drawn with the chosen controller's live state.
+    /// Which controller the preview draws.
+    enum PadKind { DualShock4, DualSense, Xbox, Generic }
+
+    /// A controller drawn with the chosen controller's live state: a DualShock 4, a DualSense or an
+    /// Xbox controller (other controllers: the Xbox layout without its colours).
     class ControllerPreview : Control
     {
         public bool Connected;
         public string Caption = "";
-        // Pressed state of the PS4 controls, sticks (-1..1) and triggers (0..1).
+        public PadKind Kind = PadKind.DualShock4;
+        // The light bar's colour (DualShock 4 and DualSense).
+        public Color Light = Color.FromArgb(40, 110, 230);
+        // Pressed state by position: Cross is the bottom face button (Xbox A), Circle the right one
+        // (B), Square the left one (X), Triangle the top one (Y). Share is View on Xbox, Options is
+        // Menu, Ps the PS or Xbox button. Sticks -1..1, triggers 0..1.
         public bool Cross, Circle, Square, Triangle, L1, R1, L3, R3, Share, Options, Ps, Touchpad, PadUp, PadDown, PadLeft, PadRight;
         public float LX, LY, RX, RY, L2, R2;
 
@@ -121,9 +130,19 @@ namespace RyGT
         }
 
         static readonly Color Body = Color.FromArgb(58, 58, 64);
+        // DualSense (white): a near-white shell and touchpad, black sticks and small buttons,
+        // clear light grey d-pad and face buttons.
+        static readonly Color WhiteBody = Color.FromArgb(242, 242, 244);
+        static readonly Color WhiteSeam = Color.FromArgb(168, 168, 176);
+        static readonly Color TouchpadSurface = Color.FromArgb(248, 248, 250);
+        static readonly Color TouchpadSeam = Color.FromArgb(190, 190, 198);
+        static readonly Color ClearButton = Color.FromArgb(218, 218, 224);
+        static readonly Color ClearEdge = Color.FromArgb(150, 150, 160);
+        static readonly Color ClearSymbol = Color.FromArgb(118, 118, 128);
         static readonly Color Edge = Color.FromArgb(95, 95, 104);
         static readonly Color Off = Color.FromArgb(34, 34, 38);
         static readonly Color On = Color.FromArgb(206, 40, 52);
+        static readonly Color Symbol = Color.FromArgb(200, 200, 206);
 
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -141,14 +160,23 @@ namespace RyGT
                 g.DrawString(Caption, font, text, new RectangleF(0, 236, 400, 24), format);
             }
             float alpha = Connected ? 1f : 0.45f;
-            Func<Color, Color> fade = c => Color.FromArgb((int)(255 * alpha), c);
+            Func<Color, Color> fade = c => Color.FromArgb((int)(c.A * alpha), c);
+            switch (Kind)
+            {
+                case PadKind.DualSense: PaintDualSense(g, fade); break;
+                case PadKind.Xbox: PaintXbox(g, fade, true); break;
+                case PadKind.Generic: PaintXbox(g, fade, false); break;
+                default: PaintDualShock4(g, fade); break;
+            }
+        }
 
+        void PaintDualShock4(Graphics g, Func<Color, Color> fade)
+        {
             // Triggers (fill = how far pressed) and bumpers.
             Bar(g, new RectangleF(70, 6, 70, 16), L2, fade);
             Bar(g, new RectangleF(260, 6, 70, 16), R2, fade);
             Pill(g, new RectangleF(66, 26, 78, 12), L1, fade);
             Pill(g, new RectangleF(256, 26, 78, 12), R1, fade);
-
             // Body: two grips and the middle.
             using (var path = new GraphicsPath())
             {
@@ -161,31 +189,152 @@ namespace RyGT
                 path.AddBezier(130, 160, 100, 180, 85, 232, 50, 225);
                 path.AddBezier(50, 225, 5, 215, 15, 140, 40, 75);
                 path.CloseFigure();
-                using (var fill = new SolidBrush(fade(Body))) g.FillPath(fill, path);
-                using (var pen = new Pen(fade(Edge), 2)) g.DrawPath(pen, path);
+                FillBody(g, path, Body, fade);
             }
-
-            // Touchpad, share, options, PS.
+            // Light bar over the touchpad, touchpad, Share, Options, PS.
+            using (var light = new SolidBrush(fade(Light))) g.FillRectangle(light, 150, 40, 100, 3);
             Rounded(g, new RectangleF(140, 44, 120, 58), 8, Touchpad, fade);
             Pill(g, new RectangleF(118, 52, 12, 22), Share, fade);
             Pill(g, new RectangleF(270, 52, 12, 22), Options, fade);
             Round(g, new RectangleF(190, 122, 20, 20), Ps, fade);
-
-            // D-pad.
-            Rounded(g, new RectangleF(80, 64, 18, 22), 3, PadUp, fade);
-            Rounded(g, new RectangleF(80, 104, 18, 22), 3, PadDown, fade);
-            Rounded(g, new RectangleF(58, 86, 22, 18), 3, PadLeft, fade);
-            Rounded(g, new RectangleF(98, 86, 22, 18), 3, PadRight, fade);
-
-            // Face buttons, with their symbols.
+            DPad(g, 89, 95, 22, 18, fade);
+            // Face buttons, with their symbols in their colours.
             Face(g, 312, 66, Triangle, fade, Color.FromArgb(64, 196, 160), 0);
             Face(g, 312, 120, Cross, fade, Color.FromArgb(120, 150, 230), 1);
             Face(g, 285, 93, Square, fade, Color.FromArgb(220, 130, 190), 2);
             Face(g, 339, 93, Circle, fade, Color.FromArgb(235, 90, 90), 3);
-
-            // Sticks: the ring, and the cap where the stick points.
             Stick(g, 140, 150, LX, LY, L3, fade);
             Stick(g, 260, 150, RX, RY, R3, fade);
+        }
+
+        void PaintDualSense(Graphics g, Func<Color, Color> fade)
+        {
+            // Black triggers and bumpers.
+            Bar(g, new RectangleF(68, 4, 74, 16), L2, fade);
+            Bar(g, new RectangleF(258, 4, 74, 16), R2, fade);
+            Pill(g, new RectangleF(62, 24, 82, 12), L1, fade);
+            Pill(g, new RectangleF(256, 24, 82, 12), R1, fade);
+            // The white shell with its rounder grips.
+            using (var path = new GraphicsPath())
+            {
+                path.AddArc(38, 38, 124, 80, 180, 90);
+                path.AddLine(100, 38, 300, 38);
+                path.AddArc(238, 38, 124, 80, 270, 90);
+                path.AddBezier(362, 78, 392, 140, 400, 222, 352, 230);
+                path.AddBezier(352, 230, 318, 236, 300, 200, 274, 184);
+                path.AddLine(274, 184, 126, 184);
+                path.AddBezier(126, 184, 100, 200, 82, 236, 48, 230);
+                path.AddBezier(48, 230, 0, 222, 8, 140, 38, 78);
+                path.CloseFigure();
+                FillBody(g, path, WhiteBody, WhiteSeam, fade);
+            }
+            // The white touchpad with the light strips beside it.
+            using (var pad = new GraphicsPath())
+            {
+                var r = new RectangleF(134, 42, 132, 64);
+                pad.AddArc(r.X, r.Y, 20, 20, 180, 90);
+                pad.AddArc(r.Right - 20, r.Y, 20, 20, 270, 90);
+                pad.AddArc(r.Right - 20, r.Bottom - 20, 20, 20, 0, 90);
+                pad.AddArc(r.X, r.Bottom - 20, 20, 20, 90, 90);
+                pad.CloseFigure();
+                FillBody(g, pad, Touchpad ? On : TouchpadSurface, TouchpadSeam, fade);
+            }
+            using (var pen = new Pen(fade(Light), 3))
+            {
+                g.DrawLine(pen, 128, 50, 128, 98);
+                g.DrawLine(pen, 272, 50, 272, 98);
+            }
+            // Create, Options, PS and mute (black).
+            Pill(g, new RectangleF(110, 48, 10, 22), Share, fade);
+            Pill(g, new RectangleF(280, 48, 10, 22), Options, fade);
+            Round(g, new RectangleF(190, 120, 20, 20), Ps, fade);
+            Pill(g, new RectangleF(191, 146, 18, 7), false, fade);
+            // The d-pad and face buttons are clear light grey, with grey symbols.
+            DPad(g, 86, 97, 22, 18, fade, ClearButton, ClearEdge);
+            Face(g, 316, 70, Triangle, fade, ClearSymbol, 0, ClearButton, ClearEdge);
+            Face(g, 316, 124, Cross, fade, ClearSymbol, 1, ClearButton, ClearEdge);
+            Face(g, 290, 97, Square, fade, ClearSymbol, 2, ClearButton, ClearEdge);
+            Face(g, 342, 97, Circle, fade, ClearSymbol, 3, ClearButton, ClearEdge);
+            Stick(g, 148, 156, LX, LY, L3, fade);
+            Stick(g, 252, 156, RX, RY, R3, fade);
+        }
+
+        void PaintXbox(Graphics g, Func<Color, Color> fade, bool colours)
+        {
+            // LT/RT and LB/RB.
+            Bar(g, new RectangleF(72, 8, 70, 16), L2, fade);
+            Bar(g, new RectangleF(258, 8, 70, 16), R2, fade);
+            Pill(g, new RectangleF(60, 30, 86, 13), L1, fade);
+            Pill(g, new RectangleF(254, 30, 86, 13), R1, fade);
+            using (var path = new GraphicsPath())
+            {
+                path.AddArc(40, 45, 140, 80, 180, 90);
+                path.AddLine(110, 45, 290, 45);
+                path.AddArc(220, 45, 140, 80, 270, 90);
+                path.AddBezier(360, 85, 392, 150, 392, 225, 345, 230);
+                path.AddBezier(345, 230, 310, 234, 292, 196, 262, 176);
+                path.AddLine(262, 176, 138, 176);
+                path.AddBezier(138, 176, 108, 196, 90, 234, 55, 230);
+                path.AddBezier(55, 230, 8, 225, 8, 150, 40, 85);
+                path.CloseFigure();
+                FillBody(g, path, Body, fade);
+            }
+            // Xbox button (with its X), View, Menu, Share.
+            Round(g, new RectangleF(186, 56, 28, 28), Ps, fade);
+            using (var pen = new Pen(fade(Ps ? Color.White : Symbol), 2))
+            {
+                g.DrawLine(pen, 194, 64, 206, 76);
+                g.DrawLine(pen, 206, 64, 194, 76);
+            }
+            Rounded(g, new RectangleF(160, 96, 18, 12), 5, Share, fade);
+            Rounded(g, new RectangleF(222, 96, 18, 12), 5, Options, fade);
+            Rounded(g, new RectangleF(193, 112, 14, 9), 4, false, fade);
+            // Left stick high, d-pad low; right stick low.
+            Stick(g, 116, 96, LX, LY, L3, fade);
+            DPad(g, 152, 144, 20, 16, fade);
+            Stick(g, 248, 148, RX, RY, R3, fade);
+            // A B X Y.
+            Letter(g, 300, 120, Cross, "A", Color.FromArgb(96, 184, 72), colours, fade);
+            Letter(g, 324, 96, Circle, "B", Color.FromArgb(225, 64, 64), colours, fade);
+            Letter(g, 276, 96, Square, "X", Color.FromArgb(64, 132, 228), colours, fade);
+            Letter(g, 300, 72, Triangle, "Y", Color.FromArgb(236, 196, 48), colours, fade);
+        }
+
+        static void FillBody(Graphics g, GraphicsPath path, Color colour, Func<Color, Color> fade)
+        {
+            FillBody(g, path, colour, Edge, fade);
+        }
+
+        static void FillBody(Graphics g, GraphicsPath path, Color colour, Color seam, Func<Color, Color> fade)
+        {
+            using (var fill = new SolidBrush(fade(colour))) g.FillPath(fill, path);
+            using (var pen = new Pen(fade(seam), 2)) g.DrawPath(pen, path);
+        }
+
+        void DPad(Graphics g, float cx, float cy, float length, float width, Func<Color, Color> fade)
+        {
+            DPad(g, cx, cy, length, width, fade, Off, Edge);
+        }
+
+        void DPad(Graphics g, float cx, float cy, float length, float width, Func<Color, Color> fade, Color fill, Color edge)
+        {
+            float h = width / 2;
+            Rounded(g, new RectangleF(cx - h, cy - h - length, width, length), 3, PadUp, fade, fill, edge);
+            Rounded(g, new RectangleF(cx - h, cy + h, width, length), 3, PadDown, fade, fill, edge);
+            Rounded(g, new RectangleF(cx - h - length, cy - h, length, width), 3, PadLeft, fade, fill, edge);
+            Rounded(g, new RectangleF(cx + h, cy - h, length, width), 3, PadRight, fade, fill, edge);
+        }
+
+        static void Letter(Graphics g, float x, float y, bool pressed, string letter, Color colour, bool colours, Func<Color, Color> fade)
+        {
+            using (var fill = new SolidBrush(fade(pressed ? (colours ? colour : On) : Off))) g.FillEllipse(fill, x - 12, y - 12, 24, 24);
+            using (var pen = new Pen(fade(Edge))) g.DrawEllipse(pen, x - 12, y - 12, 24, 24);
+            using (var font = new Font("Segoe UI", 9.5f, FontStyle.Bold))
+            using (var text = new SolidBrush(fade(pressed ? Color.White : (colours ? colour : Symbol))))
+            {
+                var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+                g.DrawString(letter, font, text, new RectangleF(x - 12, y - 11, 24, 24), format);
+            }
         }
 
         static void Bar(Graphics g, RectangleF r, float amount, Func<Color, Color> fade)
@@ -203,6 +352,11 @@ namespace RyGT
 
         static void Rounded(Graphics g, RectangleF r, float radius, bool pressed, Func<Color, Color> fade)
         {
+            Rounded(g, r, radius, pressed, fade, Off, Edge);
+        }
+
+        static void Rounded(Graphics g, RectangleF r, float radius, bool pressed, Func<Color, Color> fade, Color fill, Color edge)
+        {
             using (var path = new GraphicsPath())
             {
                 float d = radius * 2;
@@ -211,20 +365,30 @@ namespace RyGT
                 path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
                 path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
                 path.CloseFigure();
-                using (var fill = new SolidBrush(fade(pressed ? On : Off))) g.FillPath(fill, path);
-                using (var pen = new Pen(fade(Edge))) g.DrawPath(pen, path);
+                using (var brush = new SolidBrush(fade(pressed ? On : fill))) g.FillPath(brush, path);
+                using (var pen = new Pen(fade(edge))) g.DrawPath(pen, path);
             }
         }
 
         static void Round(Graphics g, RectangleF r, bool pressed, Func<Color, Color> fade)
         {
-            using (var fill = new SolidBrush(fade(pressed ? On : Off))) g.FillEllipse(fill, r);
-            using (var pen = new Pen(fade(Edge))) g.DrawEllipse(pen, r);
+            Round(g, r, pressed, fade, Off, Edge);
+        }
+
+        static void Round(Graphics g, RectangleF r, bool pressed, Func<Color, Color> fade, Color fill, Color edge)
+        {
+            using (var brush = new SolidBrush(fade(pressed ? On : fill))) g.FillEllipse(brush, r);
+            using (var pen = new Pen(fade(edge))) g.DrawEllipse(pen, r);
         }
 
         static void Face(Graphics g, float x, float y, bool pressed, Func<Color, Color> fade, Color symbol, int kind)
         {
-            Round(g, new RectangleF(x - 12, y - 12, 24, 24), pressed, fade);
+            Face(g, x, y, pressed, fade, symbol, kind, Off, Edge);
+        }
+
+        static void Face(Graphics g, float x, float y, bool pressed, Func<Color, Color> fade, Color symbol, int kind, Color fill, Color edge)
+        {
+            Round(g, new RectangleF(x - 12, y - 12, 24, 24), pressed, fade, fill, edge);
             using (var pen = new Pen(fade(pressed ? Color.White : symbol), 2))
             {
                 switch (kind)
@@ -243,6 +407,14 @@ namespace RyGT
             using (var pen = new Pen(fade(Edge))) g.DrawEllipse(pen, x - 24, y - 24, 48, 48);
             float cx = x + sx * 12, cy = y + sy * 12;
             Round(g, new RectangleF(cx - 14, cy - 14, 28, 28), pressed, fade);
+        }
+
+        /// The layout for a controller, by its USB ids.
+        public static PadKind KindOf(ushort vendor, ushort product)
+        {
+            if (vendor == 0x054c) return product == 0x0ce6 || product == 0x0df2 ? PadKind.DualSense : PadKind.DualShock4;
+            if (vendor == 0x045e) return PadKind.Xbox;
+            return PadKind.Generic;
         }
     }
 
@@ -289,7 +461,8 @@ namespace RyGT
             {
                 AutoSize = true, MaximumSize = new Size(840, 0), Margin = new Padding(0, 0, 0, 10),
                 Text = "Pick each player's name and controller (GT Sport: Arcade, Split Screen for 2 players). " +
-                       "The name is the one the game shows for that player. " +
+                       "Names go into new saves (GT Sport keeps the name a save was made with). " +
+                       "In game, F3 or holding Share + Options (View + Menu) changes controllers. " +
                        "\"Next connected\" takes the controllers nobody picked, in the order Windows lists them. " +
                        "Press buttons to see them light up in the preview; click a player to preview their controller."
             };
@@ -454,6 +627,7 @@ namespace RyGT
             var assigned = Assignment();
             var device = assigned[shownPlayer];
             Joysticks.JoyInfoEx info;
+            preview.Kind = device != null ? ControllerPreview.KindOf(device.Vendor, device.Product) : PadKind.DualShock4;
             preview.Connected = device != null && Joysticks.Read(device.Id, out info) && Apply(device, info);
             if (!preview.Connected) Clear();
             preview.Caption = "Player " + (shownPlayer + 1) + ": " + (device != null ? DeviceLabel(device) : "no controller");
