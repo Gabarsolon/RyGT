@@ -33,7 +33,7 @@ void RedirectDetachedStream(DWORD id, FILE* stream, int fd, const char* name, co
     if (std::strcmp(name, "NUL") != 0) {
         const DWORD length = GetModuleFileNameA(nullptr, path, MAX_PATH);
         if (length == 0 || length >= MAX_PATH) return;
-        const auto log = RuntimeLogFiles::Prepare(std::filesystem::path(path).parent_path(), name);
+        const auto log = RuntimeLogFiles::Prepare(std::filesystem::path(path).parent_path(), name, true);
         if (log.empty() || log.string().size() >= MAX_PATH) return;
         std::strcpy(path, log.string().c_str());
     }

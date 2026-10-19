@@ -1,6 +1,7 @@
 #pragma once
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <string>
 #include <system_error>
@@ -44,12 +45,19 @@ inline bool Archive(const std::filesystem::path& source, const std::filesystem::
     return false;
 }
 
-inline std::filesystem::path Prepare(const std::filesystem::path& root, const std::filesystem::path& name) {
+inline std::filesystem::path Prepare(const std::filesystem::path& root, const std::filesystem::path& name, bool runtimeLaunch = false) {
     std::error_code error;
     const auto directory = root / "logs";
     std::filesystem::create_directories(directory, error);
     if (error) return {};
     const auto current = directory / name;
+    if (runtimeLaunch) {
+        if (const char* prepared = std::getenv("RYGT_LOG_DIRECTORY")) {
+            if (std::filesystem::equivalent(directory, prepared, error) && !error)
+                return current; // The launcher has already rotated and opened this session.
+            error.clear();
+        }
+    }
     auto legacyBase = current;
     legacyBase += ".legacy";
     if (!Archive(root / name, legacyBase) || !Archive(current, current)) return {};

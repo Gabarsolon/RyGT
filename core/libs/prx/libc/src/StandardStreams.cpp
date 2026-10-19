@@ -13,8 +13,8 @@ namespace {
 // Match the detached Windows runtime: standard C/C++ file APIs only.
 [[maybe_unused]] const bool logsInitialized = [] {
     const auto root = std::filesystem::current_path();
-    const auto output = RuntimeLogFiles::Prepare(root, "stdout.log");
-    const auto error = RuntimeLogFiles::Prepare(root, "stderr.log");
+    const auto output = RuntimeLogFiles::Prepare(root, "stdout.log", true);
+    const auto error = RuntimeLogFiles::Prepare(root, "stderr.log", true);
     if (!output.empty()) std::freopen(output.c_str(), "w", stdout);
     if (!error.empty()) std::freopen(error.c_str(), "w", stderr);
     std::setvbuf(stdout, nullptr, _IONBF, 0);

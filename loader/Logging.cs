@@ -21,14 +21,14 @@ namespace RyGT
             return path;
         }
 
-        internal static void EnsureRuntimeLogs(string root)
+        internal static string PrepareRuntimeLogs(string root)
         {
-            string directory = Path.Combine(root, "logs");
-            Directory.CreateDirectory(directory);
             foreach (string name in new[] { "stdout.log", "stderr.log" })
-                using (var file = new FileStream(Path.Combine(directory, name), FileMode.OpenOrCreate,
+                using (var file = new FileStream(Prepare(root, name), FileMode.Create,
                                                 FileAccess.Write, FileShare.ReadWrite)) { }
+            return Path.Combine(root, "logs");
         }
+
         internal static string Prepare(string root, string name)
         {
             string directory = Path.Combine(root, "logs");

@@ -1549,8 +1549,10 @@ namespace RyGT
             string exe = Path.Combine(root, "GTSport.exe");
             // Folders set up by an earlier RyGT.exe get the icon and the Windows subsystem now.
             try { if (!GameExe.IsPrepared(exe)) GameExe.Prepare(exe); } catch { }
-            LogFiles.EnsureRuntimeLogs(root);
-            Process.Start(new ProcessStartInfo(exe) { WorkingDirectory = root, UseShellExecute = true });
+            string logDirectory = LogFiles.PrepareRuntimeLogs(root);
+            var start = new ProcessStartInfo(exe) { WorkingDirectory = root, UseShellExecute = false };
+            start.EnvironmentVariables["RYGT_LOG_DIRECTORY"] = logDirectory;
+            Process.Start(start);
         }
 
         [STAThread]

@@ -18,12 +18,13 @@ namespace RyGT
             Directory.CreateDirectory(root);
             try
             {
-                LogFiles.EnsureRuntimeLogs(root);
-                Check(File.Exists(Path.Combine(root, "logs", "stdout.log")), "empty stdout exists before launch");
-                Check(File.Exists(Path.Combine(root, "logs", "stderr.log")), "empty stderr exists before launch");
-                File.WriteAllText(Path.Combine(root, "logs", "stdout.log"), "keep");
-                LogFiles.EnsureRuntimeLogs(root);
-                Check(File.ReadAllText(Path.Combine(root, "logs", "stdout.log")) == "keep", "precreation retains existing output");
+                string launchRoot = Path.Combine(root, "launch");
+                LogFiles.PrepareRuntimeLogs(launchRoot);
+                Check(Directory.GetFiles(Path.Combine(launchRoot, "logs")).Length == 2, "first launch creates exactly two files");
+                File.WriteAllText(Path.Combine(launchRoot, "logs", "stdout.log"), "keep");
+                LogFiles.PrepareRuntimeLogs(launchRoot);
+                Check(Directory.GetFiles(Path.Combine(launchRoot, "logs")).Length == 4, "second launch archives each file once");
+                Check(Array.Exists(Directory.GetFiles(Path.Combine(launchRoot, "logs")), path => File.ReadAllText(path) == "keep"), "previous output retained");
                 foreach (string name in new[] { "stdout.log", "stderr.log", "setup.log" })
                 {
                     File.WriteAllText(Path.Combine(root, name), "legacy");

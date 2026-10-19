@@ -57,6 +57,7 @@ checks persistence against the actual launcher's settings class.
 
 The launcher creates stdout.log and stderr.log under logs before starting the game,
 including launches that produce no output. Runtime stdout and stderr use unbuffered
-stdio. The runtime archives previous logs when it initializes; precreation never
-truncates existing output. Regenerate GTSport.exe with the updated converter to
+stdio. The launcher rotates previous runtime logs once, creates the two active files, and
+passes their prepared directory only to the child process. The runtime reuses them;
+direct launches without that marker perform their own rotation. Regenerate GTSport.exe with the updated converter to
 remove the old unconditional startup banner.
