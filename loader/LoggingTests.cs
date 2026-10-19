@@ -13,11 +13,17 @@ namespace RyGT
 
         static int Main()
         {
-            Check(LogFiles.LevelIndex(null) == 3 && LogFiles.LevelIndex("bad") == 3, "Warning default");
+            Check(LogFiles.LevelIndex(null) == 4 && LogFiles.LevelIndex("bad") == 4, "Error default");
             string root = Path.Combine(Path.GetTempPath(), "RyGT-logging-test-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
             try
             {
+                LogFiles.EnsureRuntimeLogs(root);
+                Check(File.Exists(Path.Combine(root, "logs", "stdout.log")), "empty stdout exists before launch");
+                Check(File.Exists(Path.Combine(root, "logs", "stderr.log")), "empty stderr exists before launch");
+                File.WriteAllText(Path.Combine(root, "logs", "stdout.log"), "keep");
+                LogFiles.EnsureRuntimeLogs(root);
+                Check(File.ReadAllText(Path.Combine(root, "logs", "stdout.log")) == "keep", "precreation retains existing output");
                 foreach (string name in new[] { "stdout.log", "stderr.log", "setup.log" })
                 {
                     File.WriteAllText(Path.Combine(root, name), "legacy");
@@ -42,21 +48,21 @@ namespace RyGT
                 string ini = Path.Combine(root, "RyGT.ini");
                 var settings = Activator.CreateInstance(settingsType, new object[] { ini });
                 var levelField = settingsType.GetField("StdoutLevel");
-                Check((string)levelField.GetValue(settings) == "Warning", "launcher default is Warning");
-                levelField.SetValue(settings, "Error");
+                Check((string)levelField.GetValue(settings) == "Error", "launcher default is Error");
+                levelField.SetValue(settings, "Debug");
                 settingsType.GetMethod("Save").Invoke(settings, null);
                 var restored = Activator.CreateInstance(settingsType, new object[] { ini });
-                Check((string)levelField.GetValue(restored) == "Error", "launcher level persists");
+                Check((string)levelField.GetValue(restored) == "Debug", "launcher level persists");
                 File.WriteAllText(ini, "stdout_level=invalid");
                 restored = Activator.CreateInstance(settingsType, new object[] { ini });
-                Check((string)levelField.GetValue(restored) == "Warning", "invalid launcher level falls back to Warning");
+                Check((string)levelField.GetValue(restored) == "Error", "invalid launcher level falls back to Error");
                 string directory = Path.Combine(root, "logs");
                 File.WriteAllText(Path.Combine(directory, "stdout.log.same"), "keep");
                 Check(LogFiles.ArchiveName(directory, "stdout.log", "same").EndsWith(".same.1"), "timestamp collision suffix");
                 Check(File.ReadAllText(Path.Combine(directory, "stdout.log.same")) == "keep", "archive never overwritten");
             }
             finally { Directory.Delete(root, true); }
-            Console.WriteLine("PASS: Warning default, settings persistence, migration and lossless rotation");
+            Console.WriteLine("PASS: Error default, settings persistence, migration and lossless rotation");
             return 0;
         }
     }

@@ -10,7 +10,7 @@ namespace RyGT
         {
             for (int i = 0; i < Levels.Length; ++i)
                 if (String.Equals(value, Levels[i], StringComparison.OrdinalIgnoreCase)) return i;
-            return 3; // Warning is the default, including invalid settings.
+            return 4; // Error is the default, including invalid settings.
         }
 
         internal static string ArchiveName(string directory, string name, string stamp)
@@ -21,6 +21,14 @@ namespace RyGT
             return path;
         }
 
+        internal static void EnsureRuntimeLogs(string root)
+        {
+            string directory = Path.Combine(root, "logs");
+            Directory.CreateDirectory(directory);
+            foreach (string name in new[] { "stdout.log", "stderr.log" })
+                using (var file = new FileStream(Path.Combine(directory, name), FileMode.OpenOrCreate,
+                                                FileAccess.Write, FileShare.ReadWrite)) { }
+        }
         internal static string Prepare(string root, string name)
         {
             string directory = Path.Combine(root, "logs");

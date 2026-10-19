@@ -39,7 +39,7 @@ void RedirectDetachedStream(DWORD id, FILE* stream, int fd, const char* name, co
     }
     if (!std::freopen(path, mode, stream)) return;
     if (_fileno(stream) != fd) _dup2(_fileno(stream), fd);
-    if (stream == stderr) std::setvbuf(stream, nullptr, _IONBF, 0);
+    if (stream == stdout || stream == stderr) std::setvbuf(stream, nullptr, _IONBF, 0);
     SetStdHandle(id, reinterpret_cast<HANDLE>(_get_osfhandle(fd)));
 }
 

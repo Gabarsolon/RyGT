@@ -1,17 +1,16 @@
 # Logging
 
 The launcher list box selects the minimum severity written by the renderer to
-`stdout.log`: Trace, Debug, Info, Warning, Error, or Critical. Warning is the
-default; it includes Warning, Error, and Critical. A missing or invalid setting
-also uses Warning. Changes take effect on the next game launch.
+`stdout.log`: Trace, Debug, Info, Warning, Error, or Critical. Error is the
+default; it includes Error and Critical. A missing or invalid setting
+also uses Error. Changes take effect on the next game launch.
 
-The selection is stored as `stdout_level=Warning` in `RyGT.ini`. The renderer
+The selection is stored as `stdout_level=Error` in `RyGT.ini`. The renderer
 reads this file from the game's working directory, which the launcher sets to
 the package directory. Other launchers should use that working directory too.
 
 The shared renderer backend applies the threshold before writing to stdout.
-Its existing internal log files keep their independent class filters. Raw
-stdout messages without a severity are retained. `stderr.log` and `setup.log`
+Its existing internal log files keep their independent class filters. Native file-open and thread-start diagnostics are Trace; other native stdout diagnostics are Debug. Raw game stdout remains unchanged. `stderr.log` and `setup.log`
 are never severity-filtered.
 
 Active logs are in the package's `logs` directory:
@@ -38,7 +37,7 @@ helper.
 Rebuild the launcher and libc. The renderer is a separate build: apply
 `renderer/shadGT-patches/0019-leveled-stdout-logging.patch` to shadGT `ryty-gpu`
 at `afc9e36cdcf1601336776147893581650410569e` (which already contains patches
-0001 through 0018), then apply `0020-fix-host-library-linking.patch` and rebuild the host libraries. An older prebuilt renderer does
+0001 through 0018), then apply `0020-fix-host-library-linking.patch` and `0021-default-stdout-error.patch` and rebuild the host libraries. An older prebuilt renderer does
 not implement `stdout_level`.
 
 With libc tests enabled, `ctest -R '^log_files$' --output-on-failure` checks
@@ -55,3 +54,9 @@ checks persistence against the actual launcher's settings class.
 
 `renderer/stdout_level.h` is the testable copy of the header carried by patch
 0019. Keep both copies identical when changing the severity policy.
+
+The launcher creates stdout.log and stderr.log under logs before starting the game,
+including launches that produce no output. Runtime stdout and stderr use unbuffered
+stdio. The runtime archives previous logs when it initializes; precreation never
+truncates existing output. Regenerate GTSport.exe with the updated converter to
+remove the old unconditional startup banner.

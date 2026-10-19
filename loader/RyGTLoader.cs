@@ -370,7 +370,7 @@ namespace RyGT
     class Settings
     {
         public string Game = "", Update = "", Modules = "", Fonts = "";
-        public string StdoutLevel = "Warning";
+        public string StdoutLevel = "Error";
         readonly string path;
 
         public Settings(string path)
@@ -672,7 +672,7 @@ namespace RyGT
                 catch (Exception e) { MessageBox.Show(this, "Could not save the logging level: " + e.Message); }
             };
             logging.Controls.Add(logLevel);
-            logging.Controls.Add(new Label { Text = "Selected level and above, on the next launch.\nAll logs are in the logs folder; previous logs are timestamped.",
+            logging.Controls.Add(new Label { Text = "Selected level and below, on the next launch.\nAll logs are in the logs folder; previous logs are timestamped.",
                 AutoSize = true, MaximumSize = new Size(360, 0), BackColor = Color.Transparent, Margin = new Padding(0, 4, 0, 0) });
             column.Controls.Add(grid);
 
@@ -1549,6 +1549,7 @@ namespace RyGT
             string exe = Path.Combine(root, "GTSport.exe");
             // Folders set up by an earlier RyGT.exe get the icon and the Windows subsystem now.
             try { if (!GameExe.IsPrepared(exe)) GameExe.Prepare(exe); } catch { }
+            LogFiles.EnsureRuntimeLogs(root);
             Process.Start(new ProcessStartInfo(exe) { WorkingDirectory = root, UseShellExecute = true });
         }
 

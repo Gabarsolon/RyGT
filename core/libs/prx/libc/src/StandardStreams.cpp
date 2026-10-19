@@ -17,6 +17,7 @@ namespace {
     const auto error = RuntimeLogFiles::Prepare(root, "stderr.log");
     if (!output.empty()) std::freopen(output.c_str(), "w", stdout);
     if (!error.empty()) std::freopen(error.c_str(), "w", stderr);
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
     std::setvbuf(stderr, nullptr, _IONBF, 0);
     return true;
 }();
