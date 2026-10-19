@@ -28,6 +28,11 @@ namespace RyGT
 
         [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
         public static extern int SetWindowTheme(IntPtr window, string appName, string idList);
+
+        [DllImport("d3d11.dll", CallingConvention = CallingConvention.StdCall)]
+        public static extern int D3D11CreateDevice(IntPtr adapter, int driverType, IntPtr software,
+            uint flags, IntPtr featureLevels, uint featureLevelsCount, uint sdkVersion,
+            out IntPtr device, out int featureLevel, out IntPtr immediateContext);
     }
 
     /// Dark colors for the loader window.
@@ -1519,7 +1524,104 @@ namespace RyGT
             string exe = Path.Combine(root, "GTSport.exe");
             // Folders set up by an earlier RyGT.exe get the icon and the Windows subsystem now.
             try { if (!GameExe.IsPrepared(exe)) GameExe.Prepare(exe); } catch { }
-            Process.Start(new ProcessStartInfo(exe) { WorkingDirectory = root, UseShellExecute = true });
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                bool recoveredOnce = false;
+                while (true)
+                {
+                    long stdoutLengthBefore = 0;
+                    DateTime stdoutWriteBefore = DateTime.MinValue;
+                    try
+                    {
+                        var stdoutInfo = new FileInfo(Path.Combine(root, "stdout.log"));
+                        if (stdoutInfo.Exists)
+                        {
+                            stdoutLengthBefore = stdoutInfo.Length;
+                            stdoutWriteBefore = stdoutInfo.LastWriteTimeUtc;
+                        }
+                    }
+                    catch { }
+
+                    Process started;
+                    try
+                    {
+                        started = Process.Start(new ProcessStartInfo(exe)
+                        { WorkingDirectory = root, UseShellExecute = true });
+                    }
+                    catch (Exception e)
+                    {
+                        AppendSetupLog(root, "Could not start GT Sport: " + e.Message);
+                        return;
+                    }
+                    if (started == null) return;
+                    using (Process game = started) game.WaitForExit();
+
+                    if (recoveredOnce || !RendererReportedDeviceLoss(root, stdoutLengthBefore, stdoutWriteBefore)) return;
+                    recoveredOnce = true;
+                    AppendSetupLog(root, "Vulkan lost the GPU device. Waiting for Windows to restore the graphics device before restarting GT Sport.");
+                    if (!WaitForGraphicsDevice(TimeSpan.FromMinutes(2)))
+                    {
+                        AppendSetupLog(root, "The graphics device did not recover within 2 minutes; GT Sport was not restarted.");
+                        return;
+                    }
+                    AppendSetupLog(root, "The graphics device is responding again. Restarting GT Sport once; the interrupted session cannot be resumed.");
+                }
+            });
+        }
+
+        static bool RendererReportedDeviceLoss(string root, long previousLength, DateTime previousWriteTime)
+        {
+            string path = Path.Combine(root, "stdout.log");
+            try
+            {
+                var info = new FileInfo(path);
+                if (!info.Exists || (info.Length == previousLength && info.LastWriteTimeUtc == previousWriteTime))
+                    return false;
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete))
+                {
+                    int count = (int)Math.Min(stream.Length, 1024 * 1024);
+                    stream.Seek(-count, SeekOrigin.End);
+                    byte[] bytes = new byte[count];
+                    stream.Read(bytes, 0, bytes.Length);
+                    string tail = Encoding.UTF8.GetString(bytes);
+                    return tail.IndexOf("ErrorDeviceLost", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                           tail.IndexOf("Device lost", StringComparison.OrdinalIgnoreCase) >= 0;
+                }
+            }
+            catch { return false; }
+        }
+
+        static bool WaitForGraphicsDevice(TimeSpan timeout)
+        {
+            var deadline = DateTime.UtcNow + timeout;
+            while (DateTime.UtcNow < deadline)
+            {
+                IntPtr device = IntPtr.Zero, context = IntPtr.Zero;
+                try
+                {
+                    // A fresh hardware D3D11 device is a small probe that the Windows display
+                    // driver has recovered. Driver type 1 is HARDWARE; SDK version is 7.
+                    int featureLevel;
+                    int result = Native.D3D11CreateDevice(IntPtr.Zero, 1, IntPtr.Zero, 0,
+                        IntPtr.Zero, 0, 7, out device, out featureLevel, out context);
+                    if (result >= 0) return true;
+                }
+                catch { }
+                finally
+                {
+                    if (context != IntPtr.Zero) Marshal.Release(context);
+                    if (device != IntPtr.Zero) Marshal.Release(device);
+                }
+                Thread.Sleep(2000);
+            }
+            return false;
+        }
+
+        static void AppendSetupLog(string root, string line)
+        {
+            try { File.AppendAllText(Path.Combine(root, "setup.log"), line + Environment.NewLine); }
+            catch { }
         }
 
         [STAThread]
