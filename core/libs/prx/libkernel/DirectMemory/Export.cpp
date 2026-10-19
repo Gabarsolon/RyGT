@@ -469,4 +469,8 @@ int APS5_VABI sceKernelMlock_nid_postfix(void* address, std::uint64_t length) {
     return 0;
 }
 
+int APS5_VABI sceKernelMunlock() {
+    return 0;
+}
+
 }

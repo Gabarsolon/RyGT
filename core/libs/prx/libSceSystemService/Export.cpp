@@ -12,6 +12,32 @@
 
 extern "C" {
 
+int APS5_VABI sceSystemServiceGetVersionNumberOfCameraCalibrationData() {
+    return 0;
+}
+
+int APS5_VABI sceSystemServiceRequestCameraCalibration() {
+    return 0;
+}
+
+int APS5_VABI sceSystemServiceSetOutOfVrPlayAreaFlag(int flag) {
+    (void)flag;
+    return 0;
+}
+
+int APS5_VABI sceSystemServiceSetOutOfVrPlayZoneWarning(int flag) {
+    (void)flag;
+    return 0;
+}
+
+int APS5_VABI sceSystemServiceDisableMusicPlayer() {
+    return 0;
+}
+
+int APS5_VABI sceSystemServiceReenableMusicPlayer() {
+    return 0;
+}
+
 int APS5_VABI sceSystemServiceLoadExec(const char* path, const char* const* arguments) {
     if (!path || !*path) return SYSTEM_SERVICE_ERROR_PARAMETER;
     if (std::strcmp(path, "exit") != 0) {

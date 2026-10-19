@@ -280,6 +280,15 @@ int APS5_VABI sceKernelCreateEqueue(KernelEqueue* eq, const char* name) {
     return EQUEUE_OK;
 }
 
+int APS5_VABI kqueue() {
+    KernelEqueue eq{};
+    return sceKernelCreateEqueue(&eq, "posix-kqueue") == 0 ? eq : -1;
+}
+
+int APS5_VABI kevent() {
+    return 0;
+}
+
 int APS5_VABI sceKernelDeleteEqueue(KernelEqueue eq) {
     KernelEqueueRef owner;
     {
@@ -404,6 +413,20 @@ int APS5_VABI sceKernelAddHRTimerEvent(KernelEqueue eq, int id, const KernelTime
 
 int APS5_VABI sceKernelDeleteHRTimerEvent(KernelEqueue eq, int id) {
     return EqueueDeleteEvent_nid_postfix(eq, static_cast<uintptr_t>(id), EVFILT_HRTIMER);
+}
+
+int APS5_VABI sceKernelAddTimerEvent(KernelEqueue eq, int id, uint64_t usec, void* udata) {
+    (void)eq;
+    (void)id;
+    (void)usec;
+    (void)udata;
+    return 0;
+}
+
+int APS5_VABI sceKernelDeleteTimerEvent(KernelEqueue eq, int id) {
+    (void)eq;
+    (void)id;
+    return 0;
 }
 
 int APS5_VABI sceKernelAddAmprEvent(KernelEqueue eq, int id, void* udata) {
