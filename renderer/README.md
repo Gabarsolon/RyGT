@@ -47,5 +47,5 @@ by itself at configure time.
 `0019-ghost-quad-sample-mask` (Gabarsolon) is applied in shadGT after the native renderer, merged
 with its larger push block (the quad sample mask follows the four buffer-offset vectors).
 
-shadGT's branch `ryty-gpu` has every patch applied (commit `9325e31f`); building from it is the
-simplest way to get the current renderer.
+shadGT's branch `ryty-gpu` has every patch applied (commit `84cf50ce`, which also skips screenshots of
+an empty picture); building from it is the simplest way to get the current renderer.
