@@ -1,6 +1,6 @@
-From c5e95a75e02ead6e033ce018f6c237ea069805a7 Mon Sep 17 00:00:00 2001
+From afd1c882398e322287c26ab3e677ab71a40194e2 Mon Sep 17 00:00:00 2001
 From: mlgprorektm8 <67933lance@gmail.com>
-Date: Tue, 20 Oct 2026 09:52:14 -0500
+Date: Tue, 20 Oct 2026 10:40:15 -0500
 Subject: [PATCH] Native renderer (experimental, launcher option "Renderer")
 
 The native renderer: GT Sport's command buffers decoded and recorded straight into Vulkan by a
@@ -7347,7 +7347,7 @@ index 00000000..5e5aedd7
 +
 +} // namespace Native
 diff --git a/ryty_gpu/ryty_entry.cpp b/ryty_gpu/ryty_entry.cpp
-index cd7459f6..958bd72a 100644
+index dcd851e4..ce88f1a2 100644
 --- a/ryty_gpu/ryty_entry.cpp
 +++ b/ryty_gpu/ryty_entry.cpp
 @@ -32,6 +32,8 @@
@@ -7359,7 +7359,7 @@ index cd7459f6..958bd72a 100644
  #include "sdl_window.h"
  #include "video_core/renderer_vulkan/vk_rasterizer.h"
  #include "core/debug_state.h"
-@@ -483,10 +485,12 @@ void Ryty::RytyLibraryInitialize() {
+@@ -484,10 +486,12 @@ void Ryty::RytyLibraryInitialize() {
                  if (c1 == std::string::npos || c2 == std::string::npos) {
                      continue;
                  }
@@ -7375,7 +7375,7 @@ index cd7459f6..958bd72a 100644
                  if (execute) {
                      address += reinterpret_cast<u64>(GetModuleHandleA(nullptr));
                  }
-@@ -495,7 +499,9 @@ void Ryty::RytyLibraryInitialize() {
+@@ -496,7 +500,9 @@ void Ryty::RytyLibraryInitialize() {
                  std::this_thread::sleep_until(start + std::chrono::milliseconds(
                                                            static_cast<long long>(at * 1000)));
                  Vulkan::RytyWatchWrites(address, ms,
@@ -7386,7 +7386,7 @@ index cd7459f6..958bd72a 100644
                  std::this_thread::sleep_for(std::chrono::milliseconds(ms + 200));
              }
          }).detach();
-@@ -519,6 +525,9 @@ void Ryty::RytyLibraryInitialize() {
+@@ -520,6 +526,9 @@ void Ryty::RytyLibraryInitialize() {
  // memory manager would otherwise do this. Without them the renderer keeps cached GPU copies and
  // page tracking for memory the game has freed and reused, and its watcher counts go wrong.
  extern "C" __declspec(dllexport) void RytyGpuUnmapMemory(u64 address, u64 size) {
@@ -7396,7 +7396,7 @@ index cd7459f6..958bd72a 100644
      Core::RytyMemory::NoteMappingChange(address, size);
      if (auto* rasterizer = Core::Memory::Instance()->GetRasterizer()) {
          rasterizer->UnmapMemory(address, size);
-@@ -534,6 +543,10 @@ extern "C" __declspec(dllexport) void RytyGpuMappingChanged(u64 address, u64 siz
+@@ -535,6 +544,10 @@ extern "C" __declspec(dllexport) void RytyGpuMappingChanged(u64 address, u64 siz
  // Ryty calls this after the game changed the protection of guest memory (sceKernelMprotect),
  // which replaced the protections the renderer's page tracking had set there.
  extern "C" __declspec(dllexport) void RytyGpuProtectionChanged(u64 address, u64 size) {
@@ -7407,7 +7407,7 @@ index cd7459f6..958bd72a 100644
      Core::RytyMemory::NoteMappingChange(address, size);
      if (auto* rasterizer = Core::Memory::Instance()->GetRasterizer()) {
          rasterizer->GetPageManager().ReapplyProtection(address, size);
-@@ -541,16 +554,38 @@ extern "C" __declspec(dllexport) void RytyGpuProtectionChanged(u64 address, u64
+@@ -542,16 +555,38 @@ extern "C" __declspec(dllexport) void RytyGpuProtectionChanged(u64 address, u64
  }
  
  extern "C" __declspec(dllexport) void RytyGpuMapMemory(u64 address, u64 size) {
@@ -7446,7 +7446,7 @@ index cd7459f6..958bd72a 100644
  // Ryty loads this library before the game's code starts, so the game code can still be patched
  // safely here (FIX-074).
  extern "C" BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
-@@ -560,8 +595,12 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
+@@ -561,8 +596,12 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
          if (GetEnvironmentVariableW(L"VK_LOADER_LAYERS_DISABLE", nullptr, 0) == 0) {
              SetEnvironmentVariableW(L"VK_LOADER_LAYERS_DISABLE", L"~implicit~");
          }
@@ -7461,7 +7461,7 @@ index cd7459f6..958bd72a 100644
      }
      return TRUE;
  }
-@@ -629,6 +668,10 @@ extern "C" __declspec(dllexport) u64 RytyGpuGuestTsc() {
+@@ -630,6 +669,10 @@ extern "C" __declspec(dllexport) u64 RytyGpuGuestTsc() {
  // Ryty calls this before the kernel writes guest memory directly (a file read into a guest
  // buffer), which would fail on a write-protected page instead of faulting.
  extern "C" __declspec(dllexport) void RytyGpuInvalidateMemory(u64 address, u64 size) {
@@ -7990,7 +7990,7 @@ index 38bbe75d..fa28610d 100644
      if (g_has_pending.load(std::memory_order_relaxed)) {
          // Aliases of unmapped views the GPU no longer uses.
 diff --git a/src/video_core/buffer_cache/direct_memory.h b/src/video_core/buffer_cache/direct_memory.h
-index 39694668..e0b935b2 100644
+index 0efdf6fc..0a03ce30 100644
 --- a/src/video_core/buffer_cache/direct_memory.h
 +++ b/src/video_core/buffer_cache/direct_memory.h
 @@ -3,6 +3,8 @@
@@ -8002,7 +8002,7 @@ index 39694668..e0b935b2 100644
  #include <atomic>
  #include <map>
  #include <memory>
-@@ -57,6 +59,12 @@ public:
+@@ -58,6 +60,12 @@ public:
      /// view holds it (call EnsureImported first).
      std::optional<std::pair<const Buffer*, u64>> FindBuffer(VAddr address, u64 size) const;
  
@@ -8489,10 +8489,10 @@ index af554fa6..55152132 100644
  
      GraphicsPipelineKey key;
 diff --git a/src/video_core/renderer_vulkan/vk_pipeline_cache.cpp b/src/video_core/renderer_vulkan/vk_pipeline_cache.cpp
-index 94f51458..7b902d84 100644
+index 6291e44d..877f6595 100644
 --- a/src/video_core/renderer_vulkan/vk_pipeline_cache.cpp
 +++ b/src/video_core/renderer_vulkan/vk_pipeline_cache.cpp
-@@ -422,8 +422,49 @@ static u32 MapOutputs(std::span<Shader::OutputMap, 3> outputs, const AmdGpu::VsO
+@@ -448,8 +448,49 @@ static u32 MapOutputs(std::span<Shader::OutputMap, 3> outputs, const AmdGpu::VsO
      return num_outputs;
  }
  
@@ -8543,7 +8543,7 @@ index 94f51458..7b902d84 100644
      const auto& regs = Regs();
      const auto BuildCommon = [&](const auto& program) {
          info.props.num_user_data = program.settings.num_user_regs;
-@@ -439,7 +480,7 @@ const Shader::RuntimeInfo& PipelineCache::BuildRuntimeInfo(HwStage stage, SwStag
+@@ -465,7 +506,7 @@ const Shader::RuntimeInfo& PipelineCache::BuildRuntimeInfo(HwStage stage, SwStag
      case HwStage::Local: {
          BuildCommon(regs.ls_program);
          Shader::TessellationDataConstantBuffer tess_constants{};
@@ -8552,7 +8552,7 @@ index 94f51458..7b902d84 100644
          if (hull_info) { // FIX-058: no hull info when its draw is skipped
              hull_info->ReadTessConstantBuffer(tess_constants);
          }
-@@ -530,8 +571,8 @@ const Shader::RuntimeInfo& PipelineCache::BuildRuntimeInfo(HwStage stage, SwStag
+@@ -556,8 +597,8 @@ const Shader::RuntimeInfo& PipelineCache::BuildRuntimeInfo(HwStage stage, SwStag
          } else {
              info.hw.fs.dual_source_blending = false;
          }
@@ -8563,7 +8563,7 @@ index 94f51458..7b902d84 100644
          const auto& ps_inputs = regs.ps_inputs;
          for (u32 i = 0; i < regs.num_interp; i++) {
              info.hw.fs.inputs[i] = {
-@@ -542,7 +583,8 @@ const Shader::RuntimeInfo& PipelineCache::BuildRuntimeInfo(HwStage stage, SwStag
+@@ -568,7 +609,8 @@ const Shader::RuntimeInfo& PipelineCache::BuildRuntimeInfo(HwStage stage, SwStag
              };
          }
          for (u32 i = 0; i < Shader::MaxColorBuffers; i++) {
@@ -8573,7 +8573,7 @@ index 94f51458..7b902d84 100644
          }
          // Lowered user clip planes ride the same emulation path as guest-exported distances, so
          // the fragment side arms whenever the hardware vertex stage lowers them, keeping its input
-@@ -579,8 +621,8 @@ const Shader::RuntimeInfo& PipelineCache::BuildRuntimeInfo(HwStage stage, SwStag
+@@ -605,8 +647,8 @@ const Shader::RuntimeInfo& PipelineCache::BuildRuntimeInfo(HwStage stage, SwStag
      case SwStage::Vertex:
          info.sw.vs.step_rate_0 = regs.vgt_instance_step_rate_0;
          info.sw.vs.step_rate_1 = regs.vgt_instance_step_rate_1;
@@ -8584,7 +8584,7 @@ index 94f51458..7b902d84 100644
          info.sw.vs.tess_emulated_primitive =
              regs.primitive_type == AmdGpu::PrimitiveType::RectList ||
              (regs.primitive_type == AmdGpu::PrimitiveType::QuadList && !QuadListAsTriangles());
-@@ -683,7 +725,9 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
+@@ -709,7 +751,9 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
              use_stored_shaders = true;
              // D10: the old renderer's translations stand in while the new renderer's are built.
              // SHADGT_LEGACY_FALLBACK=0 turns it off.
@@ -8595,7 +8595,7 @@ index 94f51458..7b902d84 100644
                  const char* fallback_env = std::getenv("SHADGT_LEGACY_FALLBACK");
                  if (!fallback_env || fallback_env[0] != '0') {
                      Storage::DataBase::Legacy().OpenLegacy();
-@@ -888,11 +932,11 @@ const AmdGpu::Regs& PipelineCache::Regs() const {
+@@ -914,11 +958,11 @@ const AmdGpu::Regs& PipelineCache::Regs() const {
  }
  
  bool PipelineCache::HasSupportedColorTargets() const {
@@ -8610,7 +8610,7 @@ index 94f51458..7b902d84 100644
          if (color_buffer.data_format != AmdGpu::DataFormat::FormatInvalid &&
              Vulkan::LiverpoolToVK::TrySurfaceFormat(
                  color_buffer.data_format, color_buffer.num_format) == vk::Format::eUndefined) {
-@@ -904,23 +948,23 @@ bool PipelineCache::HasSupportedColorTargets() const {
+@@ -930,23 +974,23 @@ bool PipelineCache::HasSupportedColorTargets() const {
  
  std::shared_ptr<PipelineCache::PipelineBuild> PipelineCache::MakePipelineBuild() {
      auto build = std::make_shared<PipelineBuild>();
@@ -8642,7 +8642,7 @@ index 94f51458..7b902d84 100644
      build->done = build->promise.get_future().share();
      build->queued = std::chrono::steady_clock::now();
      return build;
-@@ -1612,7 +1656,7 @@ bool PipelineCache::LegacyWaits() const {
+@@ -1640,7 +1684,7 @@ bool PipelineCache::LegacyWaits() const {
      // driver usually has it already. Not in a race: there one the driver did not have stopped
      // the game for up to seconds (19.7 s of such waits in one test race); it builds in the
      // background like the rest. -DisablePerf 141 waits for them in races too.
@@ -8651,7 +8651,7 @@ index 94f51458..7b902d84 100644
          return false;
      }
  #ifdef RYTY_GPU
-@@ -1690,7 +1734,7 @@ void PipelineCache::ReadAheadAtBufferStart() {
+@@ -1721,7 +1765,7 @@ void PipelineCache::ReadAheadAtBufferStart() {
          return;
      }
      // No draw is being processed, so nothing needs restoring afterwards.
@@ -8660,7 +8660,7 @@ index 94f51458..7b902d84 100644
  }
  
  void PipelineCache::ReadAhead(const DrawIndirectParams params, bool restore) {
-@@ -1743,16 +1787,16 @@ void PipelineCache::ReadAhead(const DrawIndirectParams params, bool restore) {
+@@ -1774,16 +1818,16 @@ void PipelineCache::ReadAhead(const DrawIndirectParams params, bool restore) {
          }
          ++evaluated;
          regs_override = &regs;
@@ -8681,7 +8681,7 @@ index 94f51458..7b902d84 100644
          ++started;
          return true;
      });
-@@ -1760,7 +1804,7 @@ void PipelineCache::ReadAhead(const DrawIndirectParams params, bool restore) {
+@@ -1791,7 +1835,7 @@ void PipelineCache::ReadAhead(const DrawIndirectParams params, bool restore) {
          last_scan_draws = draws;
          draws_since_scan = 0;
          // Back to the draw being processed.
@@ -8690,7 +8690,7 @@ index 94f51458..7b902d84 100644
          if (restore && evaluated > 0) {
              RefreshGraphicsKey();
          }
-@@ -1798,8 +1842,8 @@ void PipelineCache::BuildQueuedStates(const DrawIndirectParams params, bool rest
+@@ -1829,8 +1873,8 @@ void PipelineCache::BuildQueuedStates(const DrawIndirectParams params, bool rest
          queued_state_regs = std::make_unique<AmdGpu::Regs>(liverpool->DrawRegs());
      }
      Common::PhaseTimer eval_timer{Common::Phase::ReadAheadEval};
@@ -8701,7 +8701,7 @@ index 94f51458..7b902d84 100644
      u32 evaluated = 0;
      u32 started = 0;
      // Before a draw, 2 ms at most, and while waiting for a build, 64 states between checks on
-@@ -1809,13 +1853,13 @@ void PipelineCache::BuildQueuedStates(const DrawIndirectParams params, bool rest
+@@ -1840,13 +1884,13 @@ void PipelineCache::BuildQueuedStates(const DrawIndirectParams params, bool rest
             states->Take(queued_state_regs->reg_array)) {
          ++evaluated;
          regs_override = queued_state_regs.get();
@@ -8718,7 +8718,7 @@ index 94f51458..7b902d84 100644
              pending != pending_builds.end()) {
              // PERF-038: a stored pipeline still waiting in the background queue is needed soon;
              // build it now from this draw's state instead.
-@@ -1826,20 +1870,20 @@ void PipelineCache::BuildQueuedStates(const DrawIndirectParams params, bool rest
+@@ -1857,20 +1901,20 @@ void PipelineCache::BuildQueuedStates(const DrawIndirectParams params, bool rest
              }
              continue;
          }
@@ -8742,7 +8742,7 @@ index 94f51458..7b902d84 100644
      }
      auto& stats = queued_state_stats;
      const auto now = std::chrono::steady_clock::now();
-@@ -1894,7 +1938,7 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectPar
+@@ -1925,7 +1969,7 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectPar
      BuildQueuedStates(params, false);
      // PERF-038: then, while no draw waits for pipelines, stored ones go to the background.
      InstallPrewarmed();
@@ -8751,7 +8751,7 @@ index 94f51458..7b902d84 100644
      ++draws_since_scan;
      // FIX-078: missing translations of this draw's stages are queued together first; then the
      // draws after it are read and their shaders queued too, and the key is made again, waiting
-@@ -1902,12 +1946,13 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectPar
+@@ -1933,12 +1977,13 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectPar
      defer_misses = AsyncTranslation();
      deferred_miss = false;
      fallback_miss = false;
@@ -8766,7 +8766,7 @@ index 94f51458..7b902d84 100644
          force_legacy = false;
          const GraphicsPipeline* legacy = legacy_valid ? PipelineForCurrentKey(params) : nullptr;
          ++(legacy ? legacy_stats.fallback_ok : legacy_stats.fallback_none);
-@@ -1932,12 +1977,23 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectPar
+@@ -1963,12 +2008,23 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectPar
          if (pass == 0) {
              liverpool->ReadAheadNow();
              BuildQueuedStates(params, false);
@@ -8791,7 +8791,7 @@ index 94f51458..7b902d84 100644
      if (!key_valid && deferred_miss) {
          deferred_miss = false;
          key_valid = RefreshGraphicsKey();
-@@ -1947,21 +2003,21 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectPar
+@@ -1978,21 +2034,21 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectPar
      }
      // D10: a key of new translations whose pipeline is not built yet. It is built in the
      // background; meanwhile the draw uses the key made of the old renderer's translations.
@@ -8819,7 +8819,7 @@ index 94f51458..7b902d84 100644
              force_legacy = false;
              const GraphicsPipeline* legacy =
                  legacy_valid ? PipelineForCurrentKey(params) : nullptr;
-@@ -1981,14 +2037,59 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectPar
+@@ -2012,14 +2068,59 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectPar
      return PipelineForCurrentKey(params);
  }
  
@@ -8883,7 +8883,7 @@ index 94f51458..7b902d84 100644
          if (color_buffer.data_format != AmdGpu::DataFormat::FormatInvalid &&
              Vulkan::LiverpoolToVK::TrySurfaceFormat(
                  color_buffer.data_format, color_buffer.num_format) == vk::Format::eUndefined) {
-@@ -1999,10 +2100,10 @@ const GraphicsPipeline* PipelineCache::PipelineForCurrentKey(const DrawIndirectP
+@@ -2030,10 +2131,10 @@ const GraphicsPipeline* PipelineCache::PipelineForCurrentKey(const DrawIndirectP
              return nullptr;
          }
      }
@@ -8896,7 +8896,7 @@ index 94f51458..7b902d84 100644
          LOG_INFO(Render_Vulkan, "Compiling graphics pipeline {:#x}", pipeline_hash);
          // DIAG-050: the parts of new keys of tessellated pipelines (GT Sport's race summary built
          // hundreds of keys for the same few programs).
-@@ -2012,13 +2113,13 @@ const GraphicsPipeline* PipelineCache::PipelineForCurrentKey(const DrawIndirectP
+@@ -2043,13 +2144,13 @@ const GraphicsPipeline* PipelineCache::PipelineForCurrentKey(const DrawIndirectP
              static std::unordered_map<u64, GraphicsPipelineKey> last_by_stages;
              static std::unordered_map<std::string, u32> diff_counts;
              static u32 keys_seen = 0;
@@ -8914,7 +8914,7 @@ index 94f51458..7b902d84 100644
                  const auto differs = [&](const auto& x, const auto& y) {
                      return std::memcmp(&x, &y, sizeof(x)) != 0;
                  };
-@@ -2061,7 +2162,7 @@ const GraphicsPipeline* PipelineCache::PipelineForCurrentKey(const DrawIndirectP
+@@ -2092,7 +2193,7 @@ const GraphicsPipeline* PipelineCache::PipelineForCurrentKey(const DrawIndirectP
                                      offsetof(GraphicsPipelineKey, mrt_mask), offsets);
                      }
                  }
@@ -8923,7 +8923,7 @@ index 94f51458..7b902d84 100644
              }
              ++diff_counts[fields];
              if (++keys_seen % 250 == 0) {
-@@ -2079,10 +2180,10 @@ const GraphicsPipeline* PipelineCache::PipelineForCurrentKey(const DrawIndirectP
+@@ -2110,10 +2211,10 @@ const GraphicsPipeline* PipelineCache::PipelineForCurrentKey(const DrawIndirectP
              return env && env[0] == '1';
          }();
          if (log_all_keys ||
@@ -8936,7 +8936,7 @@ index 94f51458..7b902d84 100644
                  const auto part = [](const auto& field) {
                      return XXH3_64bits(&field, sizeof(field)) & 0xffff;
                  };
-@@ -2107,7 +2208,7 @@ const GraphicsPipeline* PipelineCache::PipelineForCurrentKey(const DrawIndirectP
+@@ -2138,7 +2239,7 @@ const GraphicsPipeline* PipelineCache::PipelineForCurrentKey(const DrawIndirectP
          // build at the same time on other cores.
          std::shared_ptr<PipelineBuild> build;
          bool predicted = false;
@@ -8945,7 +8945,7 @@ index 94f51458..7b902d84 100644
          if (pending != pending_builds.end() &&
              (pending->second->preloading || pending->second->async)) {
              auto stored = pending->second;
-@@ -2115,17 +2216,17 @@ const GraphicsPipeline* PipelineCache::PipelineForCurrentKey(const DrawIndirectP
+@@ -2146,18 +2247,18 @@ const GraphicsPipeline* PipelineCache::PipelineForCurrentKey(const DrawIndirectP
                  std::future_status::ready) {
                  // PERF-038: built in the background before the draw needed it; no miss.
                  pending_builds.erase(pending);
@@ -8962,12 +8962,13 @@ index 94f51458..7b902d84 100644
                  }
                  return it->second.get();
              }
--            if (stored->async && !LegacyWaits() && !WritesMemory(infos) && !NeverSkipped(infos) &&
-+            if (stored->async && !LegacyWaits() && !WritesMemory(S().infos) && !NeverSkipped(S().infos) &&
+             if ((stored->async || (CompileMode() == 2 && AsyncPipelines())) &&
+-                !LegacyWaits() && !WritesMemory(infos) && !NeverSkipped(infos) &&
++                !LegacyWaits() && !WritesMemory(S().infos) && !NeverSkipped(S().infos) &&
                  !MenusWait()) {
                  // PERF-076: still building; this draw is skipped, the next ones look again.
                  graphics_pipelines.erase(it);
-@@ -2159,15 +2260,15 @@ const GraphicsPipeline* PipelineCache::PipelineForCurrentKey(const DrawIndirectP
+@@ -2191,15 +2292,15 @@ const GraphicsPipeline* PipelineCache::PipelineForCurrentKey(const DrawIndirectP
              if (Common::PerfFeatureEnabled(19) && !liverpool->Pipelined() &&
                  draws_since_scan >= last_scan_draws) {
                  // Past the last read-ahead: keep reading from where it stopped.
@@ -8987,7 +8988,7 @@ index 94f51458..7b902d84 100644
          } else if (queued_states) {
              // PERF-034: a worker builds it while this thread starts the builds the command
              // thread's read-ahead queues meanwhile.
-@@ -2181,11 +2282,11 @@ const GraphicsPipeline* PipelineCache::PipelineForCurrentKey(const DrawIndirectP
+@@ -2217,11 +2318,11 @@ const GraphicsPipeline* PipelineCache::PipelineForCurrentKey(const DrawIndirectP
          // and the game goes on in slow motion until it is built.
          // D10: a pipeline of old translations is built right away (the driver usually has it
          // from the old renderer's sessions, so it takes milliseconds).
@@ -9002,7 +9003,7 @@ index 94f51458..7b902d84 100644
              graphics_pipelines.erase(it);
              ++async_stats.deferred;
              ++async_stats.skipped_draws;
-@@ -2212,9 +2313,9 @@ const GraphicsPipeline* PipelineCache::PipelineForCurrentKey(const DrawIndirectP
+@@ -2248,9 +2349,9 @@ const GraphicsPipeline* PipelineCache::PipelineForCurrentKey(const DrawIndirectP
              // DIAG-124: why this draw waited instead of being skipped.
              std::string why;
              if (!AsyncPipelines()) why += " no-async";
@@ -9015,7 +9016,7 @@ index 94f51458..7b902d84 100644
              if (MenusWait()) why += " menus";
              LOG_WARNING(Render_Vulkan,
                          "Pipeline {:#x} {}: built {:.1f} ms after it was queued, draw waited "
-@@ -2223,19 +2324,19 @@ const GraphicsPipeline* PipelineCache::PipelineForCurrentKey(const DrawIndirectP
+@@ -2259,19 +2360,19 @@ const GraphicsPipeline* PipelineCache::PipelineForCurrentKey(const DrawIndirectP
                          std::chrono::duration<double, std::milli>(now - build->queued).count(),
                          std::chrono::duration<double, std::milli>(now - wait_start).count(),
                          why.empty() ? " ready within the quick wait" : why);
@@ -9040,7 +9041,7 @@ index 94f51458..7b902d84 100644
          } else {
              ++legacy_stats.pipelines;
          }
-@@ -2244,9 +2345,9 @@ const GraphicsPipeline* PipelineCache::PipelineForCurrentKey(const DrawIndirectP
+@@ -2280,9 +2381,9 @@ const GraphicsPipeline* PipelineCache::PipelineForCurrentKey(const DrawIndirectP
  
          if (EmulatorSettings.IsShaderCollect()) {
              for (auto stage = 0; stage < MaxShaderStages; ++stage) {
@@ -9053,7 +9054,7 @@ index 94f51458..7b902d84 100644
                  }
              }
          }
-@@ -2261,7 +2362,7 @@ const ComputePipeline* PipelineCache::GetComputePipeline() {
+@@ -2297,7 +2398,7 @@ const ComputePipeline* PipelineCache::GetComputePipeline() {
          // D10: as for graphics, the old translation while the new one is made.
          fallback_nested = true;
          force_legacy = true;
@@ -9062,7 +9063,7 @@ index 94f51458..7b902d84 100644
          force_legacy = false;
          ++(key_valid ? legacy_stats.fallback_ok : legacy_stats.fallback_none);
          if (!key_valid) {
-@@ -2282,16 +2383,16 @@ const ComputePipeline* PipelineCache::GetComputePipeline() {
+@@ -2318,16 +2419,16 @@ const ComputePipeline* PipelineCache::GetComputePipeline() {
          ++Common::GetWorkCounters().pipelines_compiled;
          RYDIAG_SCOPE(PipelineBuild, pipeline_hash);
          it.value() = std::make_unique<ComputePipeline>(instance, scheduler, desc_heap, profile,
@@ -9083,7 +9084,7 @@ index 94f51458..7b902d84 100644
              module_related_pipelines[m].emplace_back(compute_key);
          }
      }
-@@ -2358,7 +2459,8 @@ void PipelineCache::RefreshSwizzledBlend(u32 cb, Shader::PsColorBuffer& color_bu
+@@ -2394,7 +2495,8 @@ void PipelineCache::RefreshSwizzledBlend(u32 cb, Shader::PsColorBuffer& color_bu
          u64(writes_other_mrt()) << 56 |
          u64((regs.color_shader_mask.GetMask(cb) & AmdGpu::ColorBufferMask::ComponentA) != 0) << 57;
      static constexpr size_t MaxLoggedSwizzledBlends = 32;
@@ -9093,7 +9094,7 @@ index 94f51458..7b902d84 100644
          !logged_swizzled_blends.insert(config).second) {
          return;
      }
-@@ -2376,9 +2478,9 @@ void PipelineCache::RefreshSwizzledBlend(u32 cb, Shader::PsColorBuffer& color_bu
+@@ -2412,9 +2514,9 @@ void PipelineCache::RefreshSwizzledBlend(u32 cb, Shader::PsColorBuffer& color_bu
  }
  
  bool PipelineCache::RefreshGraphicsKey() {
@@ -9105,7 +9106,7 @@ index 94f51458..7b902d84 100644
  
      const bool db_enabled = regs.depth_buffer.DepthValid() || regs.depth_buffer.StencilValid();
  
-@@ -2493,11 +2595,11 @@ bool PipelineCache::RefreshGraphicsKey() {
+@@ -2529,11 +2631,11 @@ bool PipelineCache::RefreshGraphicsKey() {
  
  bool PipelineCache::RefreshGraphicsStages() {
      const auto& regs = Regs();
@@ -9122,7 +9123,7 @@ index 94f51458..7b902d84 100644
  
      // FIX-027: a shader program register pointing outside guest memory (GT Sport's dealership had
      // a pixel shader at 0x100) crashed the emulator reading the program. Skip such a draw, like
-@@ -2524,7 +2626,9 @@ bool PipelineCache::RefreshGraphicsStages() {
+@@ -2560,7 +2662,9 @@ bool PipelineCache::RefreshGraphicsStages() {
                  }
                  return false;
              }
@@ -9133,7 +9134,7 @@ index 94f51458..7b902d84 100644
          }
      }
  
-@@ -2535,32 +2639,32 @@ bool PipelineCache::RefreshGraphicsStages() {
+@@ -2571,32 +2675,32 @@ bool PipelineCache::RefreshGraphicsStages() {
          const auto stage_out_idx = static_cast<u32>(stage_out);
          if (!regs.stage_enable.IsStageEnabled(stage_in_idx)) {
              key.stage_hashes[stage_out_idx] = 0;
@@ -9173,7 +9174,7 @@ index 94f51458..7b902d84 100644
      key.mrt_mask = fs_info ? fs_info->mrt_mask : 0u;
      key.num_color_attachments = std::bit_width(key.mrt_mask);
      if (key.num_color_attachments > AmdGpu::NUM_COLOR_BUFFERS) {
-@@ -2592,7 +2696,7 @@ bool PipelineCache::RefreshGraphicsStages() {
+@@ -2628,7 +2732,7 @@ bool PipelineCache::RefreshGraphicsStages() {
          if (!bind_stage(HwStage::Hull, SwStage::TessellationControl)) {
              return false;
          }
@@ -9182,7 +9183,7 @@ index 94f51458..7b902d84 100644
              !hull || !SaneTessConstants(*hull, liverpool, regs_override != nullptr)) {
              return false; // FIX-058: the local stage reads the hull's constants
          }
-@@ -2618,7 +2722,7 @@ bool PipelineCache::RefreshGraphicsStages() {
+@@ -2654,7 +2758,7 @@ bool PipelineCache::RefreshGraphicsStages() {
          if (!bind_stage(HwStage::Hull, SwStage::TessellationControl)) {
              return false;
          }
@@ -9191,7 +9192,7 @@ index 94f51458..7b902d84 100644
              !hull || !SaneTessConstants(*hull, liverpool, regs_override != nullptr)) {
              return false; // FIX-058: the local stage reads the hull's constants
          }
-@@ -2643,12 +2747,12 @@ bool PipelineCache::RefreshGraphicsStages() {
+@@ -2679,12 +2783,12 @@ bool PipelineCache::RefreshGraphicsStages() {
          return false;
      }
  
@@ -9207,7 +9208,7 @@ index 94f51458..7b902d84 100644
              const auto& buffer = attrib.GetSharp(*vs_info);
              ASSERT_MSG(vertex_binding < MaxVertexBufferCount,
                         "Vertex attribute binding count exceeded limit: {} >= {}", vertex_binding,
-@@ -2672,14 +2776,14 @@ bool PipelineCache::RefreshGraphicsStages() {
+@@ -2708,14 +2812,14 @@ bool PipelineCache::RefreshGraphicsStages() {
  }
  
  bool PipelineCache::RefreshComputeKey() {
@@ -9226,7 +9227,7 @@ index 94f51458..7b902d84 100644
  }
  
  } // namespace Vulkan
-@@ -3006,11 +3110,11 @@ void PipelineCache::InstallPrewarmed(bool force) {
+@@ -3042,11 +3146,11 @@ void PipelineCache::InstallPrewarmed(bool force) {
          return;
      }
      // The members a key is computed in are restored, so the draw sees what it would have.
@@ -9243,7 +9244,7 @@ index 94f51458..7b902d84 100644
      const auto budget = start + (force ? 20000us : 300us);
      do {
          std::unique_ptr<PrewarmRecord> record;
-@@ -3031,11 +3135,11 @@ void PipelineCache::InstallPrewarmed(bool force) {
+@@ -3067,11 +3171,11 @@ void PipelineCache::InstallPrewarmed(bool force) {
              ++g_precompile_done; // PERF-098
          }
      } while (std::chrono::steady_clock::now() < budget);
@@ -9260,7 +9261,7 @@ index 94f51458..7b902d84 100644
      prewarm_stats.ms +=
          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
  }
-@@ -3053,9 +3157,9 @@ bool PipelineCache::InstallPrewarmRecord(PrewarmRecord& record) {
+@@ -3089,9 +3193,9 @@ bool PipelineCache::InstallPrewarmRecord(PrewarmRecord& record) {
      }
      const bool tess_emulated = record.key.prim_type == AmdGpu::PrimitiveType::RectList ||
                                 record.key.prim_type == AmdGpu::PrimitiveType::QuadList;
@@ -9273,7 +9274,7 @@ index 94f51458..7b902d84 100644
      for (u32 stage = 0; stage < MaxShaderStages; ++stage) {
          if (record.pgm[stage] == 0) {
              continue;
-@@ -3091,15 +3195,15 @@ bool PipelineCache::InstallPrewarmRecord(PrewarmRecord& record) {
+@@ -3127,15 +3231,15 @@ bool PipelineCache::InstallPrewarmRecord(PrewarmRecord& record) {
              })) {
              return false;
          }
@@ -9294,7 +9295,7 @@ index 94f51458..7b902d84 100644
      auto build = MakePipelineBuild();
      build->preloading = true;
      build->sdata = record.sdata;
-@@ -3173,12 +3277,16 @@ void PipelineCache::ReportPrewarm(std::chrono::steady_clock::time_point now) {
+@@ -3211,12 +3315,16 @@ void PipelineCache::ReportPrewarm(std::chrono::steady_clock::time_point now) {
      if (now - stats.since < std::chrono::seconds{2}) {
          return;
      }
@@ -9314,7 +9315,7 @@ index 94f51458..7b902d84 100644
          async_stats = {};
      }
      const u64 built = prewarm_built.load();
-@@ -3223,7 +3331,7 @@ vk::ShaderModule PipelineCache::LoadStoredModule(u64 pgm_hash, size_t perm_idx,
+@@ -3261,7 +3369,7 @@ vk::ShaderModule PipelineCache::LoadStoredModule(u64 pgm_hash, size_t perm_idx,
      }
      if (++loaded % 500 == 0) {
          LOG_WARNING(Render_Vulkan,
@@ -9323,7 +9324,7 @@ index 94f51458..7b902d84 100644
                      loaded);
      }
      return CompileSPV(spv, instance.GetDevice());
-@@ -3610,6 +3718,24 @@ static bool SaneTessConstants(const Shader::Info& hull, const AmdGpu::Liverpool*
+@@ -3648,6 +3756,24 @@ static bool SaneTessConstants(const Shader::Info& hull, const AmdGpu::Liverpool*
      return sane;
  }
  
@@ -9348,7 +9349,7 @@ index 94f51458..7b902d84 100644
  bool PipelineCache::AsyncTranslation() const {
      // FIX-078: -DisablePerf 102 translates on the command thread as before. Dumped, collected or
      // patched shaders need their permutation index while they are translated.
-@@ -3832,7 +3958,7 @@ std::optional<PipelineCache::Result> PipelineCache::TryLegacyProgram(
+@@ -3870,7 +3996,7 @@ std::optional<PipelineCache::Result> PipelineCache::TryLegacyProgram(
          }
          info.AddBindings(binding);
          if (auto& fetch = permutation.spec.fetch_shader_data; !fetch.Empty()) {
@@ -9357,7 +9358,7 @@ index 94f51458..7b902d84 100644
          }
          ++legacy_stats.draws;
          ReportLegacy();
-@@ -3863,10 +3989,76 @@ void PipelineCache::ReportLegacy() {
+@@ -3901,10 +4027,76 @@ void PipelineCache::ReportLegacy() {
      legacy_stats.since = now;
  }
  
@@ -9434,7 +9435,7 @@ index 94f51458..7b902d84 100644
      auto [it_pgm, new_program] = program_cache.try_emplace(params.hash);
      if (new_program) {
          it_pgm.value() = std::make_unique<Program>();
-@@ -3929,15 +4121,16 @@ PipelineCache::Result PipelineCache::GetProgram(HwStage hw_stage, SwStage sw_sta
+@@ -3967,15 +4159,16 @@ PipelineCache::Result PipelineCache::GetProgram(HwStage hw_stage, SwStage sw_sta
      // first waits for any still running, as one of them is likely the permutation it needs.
      // D10: with the fallback a draw does not wait for translations in progress (the old
      // translations draw meanwhile); only when there are none (fallback_nested).
@@ -9454,7 +9455,7 @@ index 94f51458..7b902d84 100644
          return std::make_tuple(nullptr, vk::ShaderModule{}, u64{0});
      }
      std::optional<Common::PhaseTimer> match_timer{std::in_place, Common::Phase::ProgramMatch};
-@@ -3984,7 +4177,7 @@ PipelineCache::Result PipelineCache::GetProgram(HwStage hw_stage, SwStage sw_sta
+@@ -4022,7 +4215,7 @@ PipelineCache::Result PipelineCache::GetProgram(HwStage hw_stage, SwStage sw_sta
                  }
                  info.AddBindings(binding);
                  if (auto& fetch = permutation.spec.fetch_shader_data; !fetch.Empty()) {
@@ -9463,7 +9464,7 @@ index 94f51458..7b902d84 100644
                  }
                  return std::make_tuple(&info, permutation.module,
                                         HashCombine(params.hash, program->last_match));
-@@ -4067,12 +4260,11 @@ PipelineCache::Result PipelineCache::GetProgram(HwStage hw_stage, SwStage sw_sta
+@@ -4105,12 +4298,11 @@ PipelineCache::Result PipelineCache::GetProgram(HwStage hw_stage, SwStage sw_sta
          }
          info.AddBindings(binding);
          if (auto& fetch = permutation.spec.fetch_shader_data; !fetch.Empty()) {
@@ -9477,7 +9478,7 @@ index 94f51458..7b902d84 100644
      if (AsyncTranslation()) {
          // FIX-078: a translation the workers made for these inputs.
          const bool read_ahead = regs_override != nullptr;
-@@ -4094,16 +4286,19 @@ PipelineCache::Result PipelineCache::GetProgram(HwStage hw_stage, SwStage sw_sta
+@@ -4132,16 +4324,19 @@ PipelineCache::Result PipelineCache::GetProgram(HwStage hw_stage, SwStage sw_sta
              fallback_miss = true;
              return std::make_tuple(nullptr, vk::ShaderModule{}, u64{0});
          }
@@ -9501,7 +9502,7 @@ index 94f51458..7b902d84 100644
              }
              return std::make_tuple(nullptr, vk::ShaderModule{}, u64{0});
          }
-@@ -4140,7 +4335,7 @@ PipelineCache::Result PipelineCache::GetProgram(HwStage hw_stage, SwStage sw_sta
+@@ -4178,7 +4373,7 @@ PipelineCache::Result PipelineCache::GetProgram(HwStage hw_stage, SwStage sw_sta
      program->modules[perm_idx].spv_hash = last_spv_hash;
      LogRepeatedPermutation(*program, perm_idx, hw_stage, params.hash);
      if (auto& fetch = program->modules[perm_idx].spec.fetch_shader_data; !fetch.Empty()) {
@@ -9510,7 +9511,7 @@ index 94f51458..7b902d84 100644
      }
      return std::make_tuple(info_ptr, module, perm_hash);
  }
-@@ -4183,7 +4378,7 @@ bool PipelineCache::QuadListAsTriangles() const {
+@@ -4221,7 +4416,7 @@ bool PipelineCache::QuadListAsTriangles() const {
      // (Rasterizer::BindQuadListIndices). Their pipeline is a plain triangle-list pipeline, and
      // the vertex shader writes the fragment shader's inputs directly.
      return Regs().primitive_type == AmdGpu::PrimitiveType::QuadList &&
@@ -9520,7 +9521,7 @@ index 94f51458..7b902d84 100644
  
  void PipelineCache::RecoverAttributeFlags(Shader::Info& info,
 diff --git a/src/video_core/renderer_vulkan/vk_pipeline_cache.h b/src/video_core/renderer_vulkan/vk_pipeline_cache.h
-index 1ed182ff..2db589db 100644
+index c6fac5b5..01f18bd2 100644
 --- a/src/video_core/renderer_vulkan/vk_pipeline_cache.h
 +++ b/src/video_core/renderer_vulkan/vk_pipeline_cache.h
 @@ -3,6 +3,10 @@
@@ -9534,9 +9535,9 @@ index 1ed182ff..2db589db 100644
  #include "common/spin_mutex.h"
  
  #include <atomic>
-@@ -82,6 +86,37 @@ bool CompileSlowMotion();
- /// FIX-104: pipeline creations in progress.
- u32 PipelineBuildsRunning();
+@@ -84,6 +88,37 @@ u32 PipelineBuildsRunning();
+ /// Active shader translation or driver pipeline compilation, independent of guest-clock holds.
+ bool CompilationInProgress();
  
 +/// NAT-031: the pipeline cache's lookup lock. The command and recorder threads take it
 +/// exclusively (as before); game job threads looking pipelines up take it shared, and step aside
@@ -9572,7 +9573,7 @@ index 1ed182ff..2db589db 100644
  class PipelineCache {
  public:
      explicit PipelineCache(const Instance& instance, Scheduler& scheduler,
-@@ -97,16 +132,31 @@ public:
+@@ -99,16 +134,31 @@ public:
      /// PERF-047: with pipelines selected on the command thread, both GPU threads look pipelines
      /// up; every GetGraphicsPipeline/GetComputePipeline call holds this lock, and so does any
      /// read of the infos below or copy of a cached info.
@@ -9606,7 +9607,7 @@ index 1ed182ff..2db589db 100644
      using Result = std::tuple<const Shader::Info*, vk::ShaderModule, u64>;
      Result GetProgram(Shader::HwStage hw_stage, Shader::SwStage sw_stage,
                        const Shader::ShaderParams& params, Shader::Backend::Bindings& binding);
-@@ -218,7 +268,6 @@ private:
+@@ -220,7 +270,6 @@ private:
      vk::UniquePipelineLayout pipeline_layout;
      Shader::Profile profile{};
      Shader::Pools pools;
@@ -9614,7 +9615,7 @@ index 1ed182ff..2db589db 100644
      tsl::robin_map<size_t, std::unique_ptr<Program>> program_cache;
      /// PERF-013: per program, one past the highest permutation index in the stored cache, so a
      /// permutation created at runtime never reuses (and overwrites) a stored index.
-@@ -269,8 +318,6 @@ private:
+@@ -271,8 +320,6 @@ private:
      tsl::robin_map<size_t, std::unique_ptr<Program>> legacy_programs;
      bool legacy_fallback{};
      bool force_legacy{};      ///< making the key with the old translations only
@@ -9623,7 +9624,7 @@ index 1ed182ff..2db589db 100644
      bool fallback_nested{};
      bool fallback_miss{};     ///< a new translation was queued for the current key
      struct LegacyStats {
-@@ -287,11 +334,41 @@ private:
+@@ -289,11 +336,41 @@ private:
      void ReportLegacy();
      tsl::robin_map<ComputePipelineKey, std::unique_ptr<ComputePipeline>> compute_pipelines;
      tsl::robin_map<GraphicsPipelineKey, std::unique_ptr<GraphicsPipeline>> graphics_pipelines;
@@ -9670,7 +9671,7 @@ index 1ed182ff..2db589db 100644
      ComputePipelineKey compute_key{};
      u32 num_new_pipelines{}; // new pipelines added to the cache since the game start
  
-@@ -358,7 +435,13 @@ private:
+@@ -360,7 +437,13 @@ private:
          u64 deferred{};
          u64 installed{};
          u64 skipped_draws{};
@@ -9684,7 +9685,7 @@ index 1ed182ff..2db589db 100644
      struct PrewarmStats {
          u64 installed{};
          u64 skipped{};
-@@ -370,7 +453,7 @@ private:
+@@ -372,7 +455,7 @@ private:
          std::chrono::steady_clock::time_point since{};
      } prewarm_stats;
      std::jthread prewarm_reader;
@@ -9693,7 +9694,7 @@ index 1ed182ff..2db589db 100644
  
      /// FIX-078: a shader the read-ahead found with no matching translation is translated on a
      /// worker thread; the draw that needs it takes the result (or waits for it) instead of
-@@ -416,9 +499,6 @@ private:
+@@ -418,9 +501,6 @@ private:
                            const Shader::Backend::Bindings& start);
      tsl::robin_map<u64, std::vector<std::shared_ptr<TranslateJob>>> translate_jobs;
      tsl::robin_map<u64, std::vector<std::shared_ptr<TranslateJob>>> ready_translations;
@@ -10126,7 +10127,7 @@ index b19a4d81..b006c7b2 100644
      void Present(Frame* frame, bool is_reusing_frame = false, bool is_game_frame = true);
      Frame* PrepareLastFrame();
 diff --git a/src/video_core/renderer_vulkan/vk_rasterizer.cpp b/src/video_core/renderer_vulkan/vk_rasterizer.cpp
-index b301a23d..fe762aec 100644
+index ead76aed..4dbb3510 100644
 --- a/src/video_core/renderer_vulkan/vk_rasterizer.cpp
 +++ b/src/video_core/renderer_vulkan/vk_rasterizer.cpp
 @@ -32,6 +32,11 @@
@@ -11089,7 +11090,7 @@ index b301a23d..fe762aec 100644
      const VAddr page = Common::AlignDown(addr, VAddr{4096});
      if (texture_cache.AnyImageInRegion(page, 4096)) {
          return false;
-@@ -5131,6 +5827,11 @@ bool Rasterizer::IsMappedStart(VAddr address) {
+@@ -5132,6 +5828,11 @@ bool Rasterizer::IsMappedStart(VAddr address) {
  
  void Rasterizer::UnmapMemory(VAddr addr, u64 size) {
      tsharp_epoch.fetch_add(1, std::memory_order_release); // FIX-046
@@ -11101,7 +11102,7 @@ index b301a23d..fe762aec 100644
      if (auto* direct = buffer_cache.GetDirectMemory()) {
          direct->OnUnmap(addr, size); // D1
      }
-@@ -5159,7 +5860,7 @@ void Rasterizer::UpdateDynamicState(const GraphicsPipeline* pipeline, const bool
+@@ -5164,7 +5865,7 @@ void Rasterizer::UpdateDynamicState(const GraphicsPipeline* pipeline, const bool
      UpdateRasterizationState();
      UpdateColorBlendingState(pipeline);
  
@@ -11110,7 +11111,7 @@ index b301a23d..fe762aec 100644
      dynamic_state.Commit(instance, scheduler.CommandBuffer());
  }
  
-@@ -5309,14 +6010,14 @@ void Rasterizer::UpdateViewportScissorState() const {
+@@ -5314,14 +6015,14 @@ void Rasterizer::UpdateViewportScissorState() const {
          scissors.push_back(empty_scissor);
      }
  
@@ -11127,7 +11128,7 @@ index b301a23d..fe762aec 100644
  
      const auto depth_test_enabled =
          regs.depth_control.depth_enable && regs.depth_buffer.DepthValid();
-@@ -5395,7 +6096,7 @@ void Rasterizer::UpdateDepthStencilState() const {
+@@ -5400,7 +6101,7 @@ void Rasterizer::UpdateDepthStencilState() const {
  
  void Rasterizer::UpdatePrimitiveState(const bool is_indexed, const bool quad_triangles) const {
      const auto& regs = liverpool->DrawRegs();
@@ -11136,7 +11137,7 @@ index b301a23d..fe762aec 100644
  
      const auto is_list_topology = [](const AmdGpu::PrimitiveType type) {
          const auto topology = LiverpoolToVK::PrimitiveType(type);
-@@ -5433,13 +6134,13 @@ void Rasterizer::UpdatePrimitiveState(const bool is_indexed, const bool quad_tri
+@@ -5438,13 +6139,13 @@ void Rasterizer::UpdatePrimitiveState(const bool is_indexed, const bool quad_tri
  
  void Rasterizer::UpdateRasterizationState() const {
      const auto& regs = liverpool->DrawRegs();
@@ -16753,10 +16754,10 @@ index 00000000..dbb3fa02
 +
 +} // namespace Vulkan
 diff --git a/src/video_core/texture_cache/texture_cache.cpp b/src/video_core/texture_cache/texture_cache.cpp
-index 41e04260..51ecccc1 100644
+index a141caef..ec4b141f 100644
 --- a/src/video_core/texture_cache/texture_cache.cpp
 +++ b/src/video_core/texture_cache/texture_cache.cpp
-@@ -95,13 +95,22 @@ void TextureCache::ProcessDownloadImages() {
+@@ -97,13 +97,22 @@ void TextureCache::ProcessDownloadImages() {
  
  bool TextureCache::DumpImage(ImageId image_id, const std::filesystem::path& path) {
      Image& image = slot_images[image_id];
@@ -16784,7 +16785,7 @@ index 41e04260..51ecccc1 100644
      const auto download = runtime.GetStagingPool().Request(size, MemoryType::HostCached, 16);
      const vk::BufferImageCopy copy = {
          .bufferOffset = download.offset,
-@@ -109,13 +118,14 @@ bool TextureCache::DumpImage(ImageId image_id, const std::filesystem::path& path
+@@ -111,13 +120,14 @@ bool TextureCache::DumpImage(ImageId image_id, const std::filesystem::path& path
          .bufferImageHeight = height,
          .imageSubresource =
              {

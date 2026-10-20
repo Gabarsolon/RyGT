@@ -31,10 +31,17 @@ the current upstream renderer does not include it.
 Patch 0020 fixes the non-renderer host libraries' shared-stub link dependencies
 when rebuilding the complete library set with logging enabled.
 
-Patch 0027 adds the native renderer (experimental), squashed from shadGT branch
-`experimental` as merged into `ryty-gpu`: GT Sport's command buffers are recorded straight into
-Vulkan by its own renderer instead of shadGT's (about 33-39 fps against 29 in the Tokyo rain
-benchmark). The launcher's "Renderer" dropdown picks it (`GPU.native_renderer`; `RYGT_NATIVE=1`
-or `=0` overrides); the old renderer stays the default. Known open problems: in Tokyo at night the
-cockpit's ambient light flickers between warm and dark frames, and rare frames are drawn from a
-wrong camera.
+Patches 0026-0038 come from contributors: 0026-0027 and `0019-ryGT-limit-concurrent-vulkan-pipeline-compiles`
+(Tanos; that one applies after 0025), 0029-0038 (xacidr4inx, plain diffs: apply them with
+`git apply`) with `vma-patches/0001-trim-empty-default-blocks.patch` for shadGT's `externals/vma`.
+Patch 0039 is the shader-compile work (all-core compiles when many wait, faster shader-pack
+translation, store dump). Patch 0040 adds the native renderer (experimental): GT Sport's command
+buffers are recorded straight into Vulkan by its own renderer instead of shadGT's (about 33-39 fps
+against 29 in the Tokyo rain benchmark). The launcher's "Renderer" dropdown picks it
+(`GPU.native_renderer`; `RYGT_NATIVE=1` or `=0` overrides); the old renderer stays the default.
+Known open problems: in Tokyo at night the cockpit's ambient light flickers between warm and dark
+frames, and rare frames are drawn from a wrong camera. Patch 0041 makes shadGT apply the VMA patch
+by itself at configure time.
+
+shadGT's branch `ryty-gpu` has every patch applied in order (commit `da4e1cd2`); building from it
+is the simplest way to get the current renderer.

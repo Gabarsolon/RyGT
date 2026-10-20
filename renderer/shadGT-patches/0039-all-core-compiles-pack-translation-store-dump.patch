@@ -1,4 +1,4 @@
-From 948548ae7965e80bfd270e6275c89cd53059291d Mon Sep 17 00:00:00 2001
+From 89bd51a57c0a3382c1364a38c086a8430045070d Mon Sep 17 00:00:00 2001
 From: mlgprorektm8 <67933lance@gmail.com>
 Date: Mon, 19 Oct 2026 06:34:03 -0500
 Subject: [PATCH] Shader compiles on all cores when they pile up, faster
@@ -19,10 +19,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  3 files changed, 278 insertions(+), 45 deletions(-)
 
 diff --git a/src/video_core/renderer_vulkan/build_queue.h b/src/video_core/renderer_vulkan/build_queue.h
-index 6b8daaeb..fe894be8 100644
+index 5c8cff9a..1b60624c 100644
 --- a/src/video_core/renderer_vulkan/build_queue.h
 +++ b/src/video_core/renderer_vulkan/build_queue.h
-@@ -130,6 +130,12 @@ public:
+@@ -136,6 +136,12 @@ public:
          return background.size();
      }
  
@@ -36,10 +36,10 @@ index 6b8daaeb..fe894be8 100644
      void NotifyAll() {
          cv.notify_all();
 diff --git a/src/video_core/renderer_vulkan/vk_pipeline_cache.cpp b/src/video_core/renderer_vulkan/vk_pipeline_cache.cpp
-index 4781d106..94f51458 100644
+index 4e0ea162..6291e44d 100644
 --- a/src/video_core/renderer_vulkan/vk_pipeline_cache.cpp
 +++ b/src/video_core/renderer_vulkan/vk_pipeline_cache.cpp
-@@ -279,6 +279,12 @@ private:
+@@ -305,6 +305,12 @@ private:
          Common::PreferEfficiencyCores();
          bool low_priority = false;
          bool all_cores = false;
@@ -52,7 +52,7 @@ index 4781d106..94f51458 100644
          while (true) {
              BuildQueue::Job job;
              bool background = false;
-@@ -288,16 +294,26 @@ private:
+@@ -314,16 +320,26 @@ private:
              // PERF-102: while the game waits on the splash screen for the precompile, every core
              // builds (and at normal priority); afterwards only the efficiency cores.
              const bool boosted = queue.Boosted();
@@ -83,7 +83,7 @@ index 4781d106..94f51458 100644
                  Common::SetCurrentThreadPriority(low_priority ? Common::ThreadPriority::Low
                                                                : Common::ThreadPriority::Normal);
              }
-@@ -714,6 +730,9 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
+@@ -740,6 +756,9 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
      if (const char* dir = std::getenv("SHADGT_TEMPLATE_TEST"); dir && *dir) {
          static std::jthread template_test{[this, d = std::string{dir}] { TemplateTest(d); }};
      }
@@ -93,7 +93,7 @@ index 4781d106..94f51458 100644
      // FIX-078: a quarter of the hardware threads (at least 2) translate read-ahead shaders.
      if (Common::PerfFeatureEnabled(102)) {
          const u32 count = std::max(2u, std::thread::hardware_concurrency() / 4);
-@@ -947,7 +966,8 @@ std::shared_ptr<PipelineCache::PipelineBuild> PipelineCache::StartPipelineBuild(
+@@ -973,7 +992,8 @@ std::shared_ptr<PipelineCache::PipelineBuild> PipelineCache::StartPipelineBuild(
  // shader record. False when it could not be translated.
  bool ReplayTranslate(const Shader::Profile& profile, Shader::Pools& pools,
                       const std::vector<u8>& program, const Shader::Info& stored,
@@ -103,7 +103,7 @@ index 4781d106..94f51458 100644
      if (program.size() < 64 || stored.flattened_ud_buf.size() < 16) {
          return false;
      }
-@@ -1012,6 +1032,10 @@ bool ReplayTranslate(const Shader::Profile& profile, Shader::Pools& pools,
+@@ -1038,6 +1058,10 @@ bool ReplayTranslate(const Shader::Profile& profile, Shader::Pools& pools,
          Common::RecoverableScope recoverable;
          const auto ir = Shader::TranslateProgram(params.code, pools, info, runtime_info, profile);
          spv = Shader::Backend::SPIRV::EmitSPIRV(profile, runtime_info, ir, binding);
@@ -114,7 +114,7 @@ index 4781d106..94f51458 100644
      } catch (...) {
          return false;
      }
-@@ -1031,54 +1055,74 @@ void PipelineCache::RebuildFromPrograms() {
+@@ -1057,54 +1081,74 @@ void PipelineCache::RebuildFromPrograms() {
      }
      auto& store = Storage::DataBase::Instance();
      const auto start = std::chrono::steady_clock::now();
@@ -229,7 +229,7 @@ index 4781d106..94f51458 100644
      }
  }
  
-@@ -1382,6 +1426,187 @@ void PipelineCache::ReplayTest(const std::string& dir) {
+@@ -1408,6 +1452,187 @@ void PipelineCache::ReplayTest(const std::string& dir) {
      }
  }
  
@@ -415,13 +415,13 @@ index 4781d106..94f51458 100644
 +}
 +
  bool PipelineCache::LegacyWaits() const {
-     // FIX-119: a pipeline of the old renderer's translations (D10) is built at once, as the
-     // driver usually has it already. Not in a race: there one the driver did not have stopped
+     // Keep going: rendering must not wait for a cosmetic pipeline.
+     if (CompileMode() == 2) return false;
 diff --git a/src/video_core/renderer_vulkan/vk_pipeline_cache.h b/src/video_core/renderer_vulkan/vk_pipeline_cache.h
-index d0a083b6..1ed182ff 100644
+index ce8eb648..c6fac5b5 100644
 --- a/src/video_core/renderer_vulkan/vk_pipeline_cache.h
 +++ b/src/video_core/renderer_vulkan/vk_pipeline_cache.h
-@@ -161,6 +161,8 @@ private:
+@@ -163,6 +163,8 @@ private:
      void ReplayTest(const std::string& dir);
      /// PB-2: SHADGT_TEMPLATE_TEST, see the constructor.
      void TemplateTest(const std::string& dir);

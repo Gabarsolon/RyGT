@@ -34,7 +34,6 @@ void APS5_VABI sceKernelDebugRaiseException(int c1, int c2) {
 void APS5_VABI sceKernelDebugRaiseExceptionOnReleaseMode(int c1, int c2) {
  (void)c1;
  (void)c2;
- NotImplemented_nid_no_patch(__func__);
 }
 
 }
