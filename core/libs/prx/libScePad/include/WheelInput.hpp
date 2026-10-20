@@ -87,6 +87,7 @@ private:
         int damperEffect = -1;
         int frictionEffect = -1;
         WheelForces played;
+        float slowConstant = 0.0f;  // the title's constant force, smoothed (for the detail boost)
     };
     struct ActiveBinding {
         Pad::JoystickBinding binding;

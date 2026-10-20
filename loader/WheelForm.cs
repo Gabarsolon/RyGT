@@ -73,7 +73,7 @@ namespace RyGT
         readonly List<int> deviceOrder = new List<int>();
         readonly object gate = new object();
         readonly Label status, deviceList, rawInput;
-        readonly NumericUpDown rotation, gain;
+        readonly NumericUpDown rotation, gain, damping, detail;
         readonly CheckBox invertForces, gameWheelMode;
         readonly ComboBox presentAs;
         // The wheel models the game can be told it has (ryty-wheel.ini "Present"); the game
@@ -170,6 +170,12 @@ namespace RyGT
             settings.Controls.Add(new Label { Text = "Force feedback strength (%)", AutoSize = true, Margin = new Padding(0, 6, 8, 0) });
             gain = new NumericUpDown { Minimum = 0, Maximum = 200, Increment = 10, Value = 100, Width = 80 };
             settings.Controls.Add(gain);
+            settings.Controls.Add(new Label { Text = "Damping (%, steadies the wheel on straights)", AutoSize = true, Margin = new Padding(0, 6, 8, 0) });
+            damping = new NumericUpDown { Minimum = 0, Maximum = 100, Increment = 5, Value = 10, Width = 80 };
+            settings.Controls.Add(damping);
+            settings.Controls.Add(new Label { Text = "Kerb and road detail (%, extra force for bumps)", AutoSize = true, Margin = new Padding(0, 6, 8, 0) });
+            detail = new NumericUpDown { Minimum = 0, Maximum = 200, Increment = 10, Value = 0, Width = 80 };
+            settings.Controls.Add(detail);
             invertForces = new DarkCheckBox { Text = "Reverse force feedback direction", AutoSize = true, Margin = new Padding(0, 4, 0, 0) };
             settings.Controls.Add(invertForces);
             settings.Controls.Add(new Label { AutoSize = true });
@@ -515,6 +521,8 @@ namespace RyGT
             if (settings.TryGetValue("rotation", out text) && int.TryParse(text, out value)) rotation.Value = Math.Max(rotation.Minimum, Math.Min(rotation.Maximum, value));
             if (settings.TryGetValue("ffbgain", out text) && int.TryParse(text, out value)) gain.Value = Math.Max(gain.Minimum, Math.Min(gain.Maximum, value));
             if (settings.TryGetValue("ffbinvert", out text)) invertForces.Checked = text == "1";
+            if (settings.TryGetValue("ffbdamping", out text) && int.TryParse(text, out value)) damping.Value = Math.Max(damping.Minimum, Math.Min(damping.Maximum, value));
+            if (settings.TryGetValue("ffbdetail", out text) && int.TryParse(text, out value)) detail.Value = Math.Max(detail.Minimum, Math.Min(detail.Maximum, value));
             if (settings.TryGetValue("padiswheel", out text)) gameWheelMode.Checked = text == "1";
             if (settings.TryGetValue("present", out text))
             {
@@ -571,6 +579,8 @@ namespace RyGT
                 { "Rotation", ((int)rotation.Value).ToString(CultureInfo.InvariantCulture) },
                 { "FfbGain", ((int)gain.Value).ToString(CultureInfo.InvariantCulture) },
                 { "FfbInvert", invertForces.Checked ? "1" : "0" },
+                { "FfbDamping", ((int)damping.Value).ToString(CultureInfo.InvariantCulture) },
+                { "FfbDetail", ((int)detail.Value).ToString(CultureInfo.InvariantCulture) },
                 { "PadIsWheel", gameWheelMode.Checked ? "1" : "0" },
                 { "Present", PresentIds[Math.Max(0, presentAs.SelectedIndex)] },
             };

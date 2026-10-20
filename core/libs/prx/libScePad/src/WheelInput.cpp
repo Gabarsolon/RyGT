@@ -466,19 +466,24 @@ void WheelInput::playForces(Device& device, const WheelForces& wanted) {
     const auto moved = [](int a, int b) { return std::abs(a - b) > 96 || ((a == 0) != (b == 0)); };
     bool running = false;
 
-    if ((device.hapticFeatures & SDL_HAPTIC_CONSTANT) != 0 && (device.constantEffect < 0 || moved(wanted.constant, device.played.constant))) {
+    // Detail: quick changes (kerbs, bumps) are the difference between the force and its smoothed
+    // value (about 120 ms at this 4 ms update); they are added again, scaled, on top.
+    device.slowConstant += (static_cast<float>(wanted.constant) - device.slowConstant) * 0.033f;
+    const int detail = static_cast<int>((static_cast<float>(wanted.constant) - device.slowConstant) * static_cast<float>(settings.ffbDetail) / 100.0f);
+    const int constant = std::clamp(wanted.constant + detail, -32767, 32767);
+    if ((device.hapticFeatures & SDL_HAPTIC_CONSTANT) != 0 && (device.constantEffect < 0 || moved(constant, device.played.constant))) {
         SDL_HapticEffect effect;
         std::memset(&effect, 0, sizeof(effect));
         effect.type = SDL_HAPTIC_CONSTANT;
         effect.constant.direction.type = SDL_HAPTIC_CARTESIAN;
         effect.constant.direction.dir[0] = 1;
         effect.constant.length = SDL_HAPTIC_INFINITY;
-        const int level = scale(settings.ffbInvert ? -wanted.constant : wanted.constant);
+        const int level = scale(settings.ffbInvert ? -constant : constant);
         effect.constant.level = static_cast<Sint16>(std::clamp(level, -32767, 32767));
         const int id = playEffect(device.haptic, device.constantEffect, effect, running);
         if (id < 0 && device.constantEffect < 0) APS5_LOG_OUT("Pad: wheel refused a constant force: %s", SDL_GetError());
         device.constantEffect = id;
-        device.played.constant = wanted.constant;
+        device.played.constant = constant;
     }
     const auto condition = [&](Uint16 type, unsigned feature, int& id, int coefficient, int center, int& playedCoefficient, int* playedCenter, int limit) {
         if ((device.hapticFeatures & feature) == 0) return;
@@ -495,7 +500,10 @@ void WheelInput::playForces(Device& device, const WheelForces& wanted) {
         if (playedCenter != nullptr) *playedCenter = center;
     };
     condition(SDL_HAPTIC_SPRING, SDL_HAPTIC_SPRING, device.gameSpringEffect, wanted.spring, wanted.springCenter, device.played.spring, &device.played.springCenter, wanted.springLimit);
-    condition(SDL_HAPTIC_DAMPER, SDL_HAPTIC_DAMPER, device.damperEffect, wanted.damper, 0, device.played.damper, nullptr, 0xFFFF);
+    // The damping setting is a floor under the title's damper (scaled back, as scale() applies the gain).
+    const int damping = gain > 0 ? settings.ffbDamping * 32767 / 100 * 100 / gain : 0;
+    condition(SDL_HAPTIC_DAMPER, SDL_HAPTIC_DAMPER, device.damperEffect, std::min(32767, std::max(wanted.damper, damping)), 0, device.played.damper,
+        nullptr, 0xFFFF);
     condition(SDL_HAPTIC_FRICTION, SDL_HAPTIC_FRICTION, device.frictionEffect, wanted.friction, 0, device.played.friction, nullptr, 0xFFFF);
     device.played.active = true;
 }

@@ -343,6 +343,8 @@ const WheelSettings& Wheel() {
             else if (key == "ffbgain") result.ffbGain = std::atoi(value.c_str());
             else if (key == "padiswheel") result.padIsWheel = std::atoi(value.c_str()) != 0;
             else if (key == "ffbinvert") result.ffbInvert = std::atoi(value.c_str()) != 0;
+            else if (key == "ffbdamping") result.ffbDamping = std::clamp(std::atoi(value.c_str()), 0, 100);
+            else if (key == "ffbdetail") result.ffbDetail = std::clamp(std::atoi(value.c_str()), 0, 200);
             else if (key == "capability") result.capability = static_cast<int>(std::strtol(value.c_str(), nullptr, 0));
             else if (key == "present") {
                 const auto colon = value.find(':');
@@ -352,6 +354,8 @@ const WheelSettings& Wheel() {
                 }
             } else APS5_LOG_OUT("Pad: unknown setting '%s' in %s", key.c_str(), path.c_str());
         }
+        APS5_LOG_OUT("Pad: force feedback: gain %d%%, damping %d%%, detail %d%%%s", result.ffbGain, result.ffbDamping, result.ffbDetail,
+            result.ffbInvert ? ", reversed" : "");
         APS5_LOG_OUT("Pad: wheel settings: rotation %d, pedal max %u, angle in %s, present as %04x:%04x, capability 0x%x",
             result.rotation, result.pedalMax, result.angleRadians ? "radians" : "degrees", result.vendor, result.product, result.capability);
         return result;
