@@ -406,7 +406,10 @@ namespace RyGT
         static readonly string[] FirmwareModules = { "libSceFont", "libSceFontFt", "libSceFreeTypeOt", "libSceJson2", "libSceNgs2" };
         // Used when present: the JPEG decoder (Scapes thumbnails and backgrounds) and PNG encoder (photos).
         // Both are plain software modules needing only libkernel and libSceLibcInternal.
-        static readonly string[] OptionalFirmwareModules = { "libSceJpegDec", "libScePngEnc", "libSceBluetoothHid", "libSceHmdSetupDialog", "libSceInvitationDialog", "libSceVrServiceDialog", "libSceVrTracker", "libSceUsbStorage", "libSceUsbStorageDialog", "libSceCamera", "libSceMbus", "libSceRegMgr", "libSceSysUtil", "libSceIpmi", "libSceMove" };
+        // (The other firmware modules GT Sport imports stay RyGT's stubs in libs: converted from a full
+        // firmware folder, some of them need modules nothing provides, such as libSceOttvCapture,
+        // and GTSport.exe then stopped at start with "Failed to load module".)
+        static readonly string[] OptionalFirmwareModules = { "libSceJpegDec", "libScePngEnc" };
 
         readonly string root = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
         readonly Settings settings;
