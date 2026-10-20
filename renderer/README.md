@@ -48,11 +48,13 @@ lack, with CreateFileMappingW so that every host library loads under Proton 10 (
 [docs/user/LINUX.md](../docs/user/LINUX.md)). Patch 0044 (FIX-160) makes the native renderer and
 the background shader workers read guest memory safely, since the game can release it while
 the renderer still reads it (two crashes in a Linux tester's runs).
+Patch 0045 (DIAG-161) prints GT Sport's own fatal-error message to stderr before the game ends
+itself ("[game] fatal error at <file>(<line>): <message>").
 
 `0019-ghost-quad-sample-mask` (Gabarsolon) is applied in shadGT after the native renderer, merged
 with its larger push block (the quad sample mask follows the four buffer-offset vectors).
 
 shadGT's branch `ryty-gpu` has every patch applied (commit `84cf50ce`, which also skips screenshots of
 an empty picture); building from it is the simplest way to get the current renderer.
-Patches 0042-0044 are on shadGT's branch `linux-proton` (commit `cb57a2d4`), not yet on
+Patches 0042-0045 are on shadGT's branch `linux-proton` (commit `5127692c`), not yet on
 `ryty-gpu`.
