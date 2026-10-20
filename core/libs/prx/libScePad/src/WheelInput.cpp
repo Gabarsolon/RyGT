@@ -375,7 +375,7 @@ bool WheelInput::Update() {
         std::lock_guard lock(forcesMutex);
         wanted = forces;
     }
-    if (Device* wheel = primary(); wheel != nullptr && wheel->haptic != nullptr && wanted.active) playForces(*wheel, wanted);
+    if (Device* wheel = primary(); wheel != nullptr && wheel->haptic != nullptr && wanted.active) playForces(*wheel, wanted, next.steering);
     std::lock_guard lock(sampleMutex);
     const bool changed = next != sample;
     sample = next;
@@ -453,7 +453,7 @@ SDL_HapticEffect conditionEffect(Uint16 type, bool direction, int coefficient, i
 }
 
 // Plays the title's forces on the wheel, changing an effect only when its value moved.
-void WheelInput::playForces(Device& device, const WheelForces& wanted) {
+void WheelInput::playForces(Device& device, const WheelForces& wanted, int steering) {
     if (device.springEffect >= 0) {
         // The title drives the wheel now; its own springs replace the startup one.
         SDL_HapticDestroyEffect(device.haptic, device.springEffect);
@@ -470,7 +470,30 @@ void WheelInput::playForces(Device& device, const WheelForces& wanted) {
     // value (about 120 ms at this 4 ms update); they are added again, scaled, on top.
     device.slowConstant += (static_cast<float>(wanted.constant) - device.slowConstant) * 0.033f;
     const int detail = static_cast<int>((static_cast<float>(wanted.constant) - device.slowConstant) * static_cast<float>(settings.ffbDetail) / 100.0f);
-    const int constant = std::clamp(wanted.constant + detail, -32767, 32767);
+    // Damping, added to the constant force rather than asked of the wheel's driver: a force
+    // against the steering's speed. The title's force lags the wheel a little, which makes a
+    // strong wheel oscillate around the centre; damping settles it. Its direction follows how the
+    // title's own centering force relates to the steering (they have opposite signs when a
+    // positive force turns the wheel towards positive steering).
+    const auto now = std::chrono::steady_clock::now();
+    if (device.lastSteeringAt != std::chrono::steady_clock::time_point{}) {
+        const float seconds = std::chrono::duration<float>(now - device.lastSteeringAt).count();
+        if (seconds > 0.0005f && seconds < 0.1f) {
+            const float speed = static_cast<float>(steering - device.lastSteering) / seconds;
+            device.steeringSpeed += (speed - device.steeringSpeed) * 0.5f;
+        }
+    }
+    device.lastSteering = steering;
+    device.lastSteeringAt = now;
+    device.centering += (static_cast<float>(wanted.constant) / 32767.0f * static_cast<float>(steering) / 32767.0f - device.centering) * 0.002f;
+    int damping = 0;
+    if (settings.ffbDamping > 0 && std::abs(device.centering) > 0.0005f) {
+        // At 100%, a wheel turning at 90 degrees a second (on a 900 degree wheel) meets a third of full force.
+        const float perSpeed = 0.33f * 32767.0f / 6553.6f * static_cast<float>(settings.ffbDamping) / 100.0f;
+        const float direction = device.centering < 0.0f ? -1.0f : 1.0f;
+        damping = static_cast<int>(std::clamp(direction * device.steeringSpeed * perSpeed, -16384.0f, 16384.0f));
+    }
+    const int constant = std::clamp(wanted.constant + detail + damping, -32767, 32767);
     if ((device.hapticFeatures & SDL_HAPTIC_CONSTANT) != 0 && (device.constantEffect < 0 || moved(constant, device.played.constant))) {
         SDL_HapticEffect effect;
         std::memset(&effect, 0, sizeof(effect));
@@ -500,10 +523,7 @@ void WheelInput::playForces(Device& device, const WheelForces& wanted) {
         if (playedCenter != nullptr) *playedCenter = center;
     };
     condition(SDL_HAPTIC_SPRING, SDL_HAPTIC_SPRING, device.gameSpringEffect, wanted.spring, wanted.springCenter, device.played.spring, &device.played.springCenter, wanted.springLimit);
-    // The damping setting is a floor under the title's damper (scaled back, as scale() applies the gain).
-    const int damping = gain > 0 ? settings.ffbDamping * 32767 / 100 * 100 / gain : 0;
-    condition(SDL_HAPTIC_DAMPER, SDL_HAPTIC_DAMPER, device.damperEffect, std::min(32767, std::max(wanted.damper, damping)), 0, device.played.damper,
-        nullptr, 0xFFFF);
+    condition(SDL_HAPTIC_DAMPER, SDL_HAPTIC_DAMPER, device.damperEffect, wanted.damper, 0, device.played.damper, nullptr, 0xFFFF);
     condition(SDL_HAPTIC_FRICTION, SDL_HAPTIC_FRICTION, device.frictionEffect, wanted.friction, 0, device.played.friction, nullptr, 0xFFFF);
     device.played.active = true;
 }

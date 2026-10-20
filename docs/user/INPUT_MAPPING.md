@@ -88,7 +88,7 @@ Optional, beside the game executable, with `Key = Value` lines:
 | `Capability` | 0 | Steering-wheel capability bits reported to the game. |
 | `FfbGain` | 100 | Force feedback strength in percent (0-200). |
 | `FfbInvert` | 0 | 1 reverses the direction of constant forces. |
-| `FfbDamping` | 10 | Damping always applied, in percent (0-100); raise it if the wheel oscillates on straights. |
+| `FfbDamping` | 10 | Damping against the wheel's speed, in percent (0-100), added to the constant force; raise it if the wheel oscillates on straights or when parked. |
 | `FfbDetail` | 0 | Extra force for quick changes such as kerbs and bumps, in percent (0-200); the steady force is unchanged. |
 | `PadIsWheel` | 0 | 1 makes player 1's pad report itself as the steering wheel too. Leave it at 0: with it on, GT Sport sends no driving forces through logiWheel and ignores the wheel in a race. |
 
