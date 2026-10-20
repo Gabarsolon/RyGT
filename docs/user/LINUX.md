@@ -35,7 +35,7 @@ The first boot builds shaders on the splash screen, as on Windows.
 ## Where things are
 
 - Logs: the `logs` folder in the RyGT folder, as on Windows.
-- Shaders: `user\cache` in the RyGT folder. Everything RyGT makes stays in its folder; only the
+- Shaders: the `shaders` folder in the RyGT folder. Everything RyGT makes stays in its folder; only the
   game files are linked from where they are.
 
 ## Controllers and wheels
