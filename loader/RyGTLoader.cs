@@ -490,6 +490,7 @@ namespace RyGT
 
             // Graphics.
             var graphics = Section(right, "Graphics");
+            AddRendererSetting(graphics);
             // Sparks, tire smoke and other effects are always on; an older launcher could have
             // turned them off in the config.
             if (!ReadSetting("GPU", "particle_effects", true))
@@ -654,10 +655,6 @@ namespace RyGT
                 Text = "0% off, 100% standard, 200% boosted. Updates while playing.",
                 ForeColor = Dark.DimText, Tag = "heading", Margin = new Padding(0, 0, 0, 2)
             });
-
-            // The direct renderer (shaders read game memory in place; Tokyo rain 42.7 fps vs 32.1)
-            // is the only renderer since 2026-10-16; the old renderer's stored shaders stand in
-            // while its own are built (D10), so it has no option any more.
 
             // Shaders: the stored ones are built while the splash screen shows; a new one pauses
             // the game until it is compiled (instead of a stutter and missing objects).
@@ -1093,6 +1090,26 @@ namespace RyGT
             };
             row.Controls.Add(label);
             row.Controls.Add(ram);
+            panel.Controls.Add(row);
+        }
+
+        // Renderer (GPU.native_renderer): the old renderer (shadGT's, with the direct memory
+        // renderer; the default) or the native renderer (experimental: GT Sport's command buffers
+        // recorded straight into Vulkan, faster in races; RYGT_NATIVE=1 or =0 overrides the choice).
+        void AddRendererSetting(TableLayoutPanel panel)
+        {
+            var row = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 4), WrapContents = false };
+            var label = new Label { Text = "Renderer", AutoSize = false, Width = 110, Height = 20, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0) };
+            var renderer = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 230, FlatStyle = FlatStyle.Flat };
+            renderer.Items.AddRange(new object[] { "Old renderer (default)", "Native renderer (experimental)" });
+            renderer.SelectedIndex = ReadSetting("GPU", "native_renderer", false) ? 1 : 0;
+            renderer.SelectedIndexChanged += delegate
+            {
+                try { WriteSetting("GPU", "native_renderer", renderer.SelectedIndex == 1); }
+                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
+            };
+            row.Controls.Add(label);
+            row.Controls.Add(renderer);
             panel.Controls.Add(row);
         }
 

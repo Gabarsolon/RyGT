@@ -30,3 +30,11 @@ the current upstream renderer does not include it.
 
 Patch 0020 fixes the non-renderer host libraries' shared-stub link dependencies
 when rebuilding the complete library set with logging enabled.
+
+Patch 0027 adds the native renderer (experimental), squashed from shadGT branch
+`experimental` as merged into `ryty-gpu`: GT Sport's command buffers are recorded straight into
+Vulkan by its own renderer instead of shadGT's (about 33-39 fps against 29 in the Tokyo rain
+benchmark). The launcher's "Renderer" dropdown picks it (`GPU.native_renderer`; `RYGT_NATIVE=1`
+or `=0` overrides); the old renderer stays the default. Known open problems: in Tokyo at night the
+cockpit's ambient light flickers between warm and dark frames, and rare frames are drawn from a
+wrong camera.
