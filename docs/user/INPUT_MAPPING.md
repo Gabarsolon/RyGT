@@ -36,7 +36,7 @@ An invalid line reports the file and line number and stops input initialization.
 
 Racing wheels (Logitech G25/G27/G29/G920/G923/G PRO, Moza, Fanatec and any device SDL reports as a wheel) and other joysticks that SDL does not map as game controllers are read by libScePad on their own thread, whichever window or renderer is in use.
 
-The wheel is reported to the game as a native steering wheel: `scePadOpenExt` opens it, `scePadReadExt`/`scePadReadStateExt` read it, and `scePadDeviceClassParseData` reports its position, throttle, brake and clutch through the steering-wheel device class. By default it presents itself as a Logitech G29 (`046d:c24f`), which GT Sport drives through its `logiWheel.prx`. The wheel's mapped buttons also reach player 1's ordinary pad, so menus can be used with it.
+The wheel is reported to the game as a native steering wheel: `scePadOpenExt` opens it, `scePadReadExt`/`scePadReadStateExt` read it, and `scePadDeviceClassParseData` reports its position, throttle, brake and clutch through the steering-wheel device class. By default it presents itself as a Fanatec direct-drive base (`0eb7:0e05`), which GT Sport drives through its Fanatec SDK; it can present itself as a Logitech G29 (`046d:c24f`) instead, which GT Sport drives through its `logiWheel.prx`. The wheel's mapped buttons also reach player 1's ordinary pad, so menus can be used with it.
 
 Without any configuration:
 
@@ -84,7 +84,7 @@ Optional, beside the game executable, with `Key = Value` lines:
 | `Rotation` | 900 | Lock-to-lock degrees, as set in the wheel's own software. |
 | `PedalMax` | 65535 | Pedal value reported at full press. |
 | `AngleUnit` | `deg` | Unit of the reported steering angle (`deg` or `rad`). |
-| `Present` | `046d:c24f` | USB vendor:product the wheel is presented as. `0eb7:0e05` presents a Fanatec direct-drive base instead (experimental, see below). |
+| `Present` | `0eb7:0e05` | USB vendor:product the wheel is presented as: `0eb7:0e05` a Fanatec direct-drive base, `046d:c24f` a Logitech G29. |
 | `Capability` | 0 | Steering-wheel capability bits reported to the game. |
 | `FfbGain` | 100 | Force feedback strength in percent (0-200). |
 | `FfbInvert` | 0 | 1 reverses the direction of constant forces. |
@@ -94,8 +94,8 @@ Optional, beside the game executable, with `Key = Value` lines:
 
 ### Force feedback
 
-`logiWheel.prx` sends a G29's force feedback as output report 0x30 through `scePadOutputReport`: a report-id byte followed by Logitech classic 8-byte commands. libScePad tracks the four effect slots (constant, variable, spring with its force cap, damper, friction, play/stop, autocenter) and plays them on the wheel as SDL haptic effects. logiWheel's report thread runs on a kernel timer event (`sceKernelAddTimerEvent`). With the defaults (`Present = 046d:c24f`, `PadIsWheel = 0`, `Capability = 0`) GT Sport drives the wheel through logiWheel and sends its road forces.
+`logiWheel.prx` sends a G29's force feedback as output report 0x30 through `scePadOutputReport`: a report-id byte followed by Logitech classic 8-byte commands. libScePad tracks the four effect slots (constant, variable, spring with its force cap, damper, friction, play/stop, autocenter) and plays them on the wheel as SDL haptic effects. logiWheel's report thread runs on a kernel timer event (`sceKernelAddTimerEvent`). With `Present = 046d:c24f` (and `PadIsWheel = 0`, `Capability = 0`) GT Sport drives the wheel through logiWheel and sends its road forces, in 8-bit steps.
 
-### Presenting a Fanatec wheel (experimental)
+### Presenting a Fanatec wheel (default)
 
-With `Present = 0eb7:0e05` GT Sport uses its Fanatec SDK instead. The SDK opens the wheel with `scePadOpenExt`, reads its configuration (feature report 0x31: rim, pedals, firmware) and rim inputs (feature report 0x33), and sends one 7-byte slot command per output report 0x30 (constant force in 8 or 16 bits, spring, damper, friction), which libScePad decodes into the wheel's forces. The game only takes this path with `PadIsWheel = 1`, and in a race it then ignores the wheel's steering and pedals, so this is not usable for driving yet.
+With `Present = 0eb7:0e05` GT Sport uses its Fanatec SDK. The SDK opens the wheel with `scePadOpenExt`, reads its configuration (feature report 0x31: rim, pedals, firmware) and rim inputs (feature report 0x33), and sends one 7-byte slot command per output report 0x30 (constant force in 16 bits, spring, damper, friction), which libScePad decodes into the wheel's forces. In a race the game's Fanatec port reads the wheel from the pad data's device-unique block, which libScePad fills: steering, accelerator and brake as 16-bit values (pedals released at 0xffff), handbrake and clutch bytes, and the H-shifter gear. Keep `PadIsWheel = 0`.

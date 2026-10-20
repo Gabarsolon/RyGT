@@ -78,8 +78,8 @@ namespace RyGT
         readonly ComboBox presentAs;
         // The wheel models the game can be told it has (ryty-wheel.ini "Present"); the game
         // uses that model's own force feedback driver.
-        static readonly string[] PresentNames = { "Logitech G29", "Fanatec (experimental: no driving yet)" };
-        static readonly string[] PresentIds = { "046d:c24f", "0eb7:0e05" };
+        static readonly string[] PresentNames = { "Fanatec direct drive (recommended)", "Logitech G29" };
+        static readonly string[] PresentIds = { "0eb7:0e05", "046d:c24f" };
         readonly Timer timer;
         Process probe;
 
@@ -527,7 +527,7 @@ namespace RyGT
             if (settings.TryGetValue("present", out text))
             {
                 int index = Array.FindIndex(PresentIds, id => string.Equals(id, text.Trim(), StringComparison.OrdinalIgnoreCase));
-                if (index < 0 && text.Trim().StartsWith("0eb7", StringComparison.OrdinalIgnoreCase)) index = 1;
+                if (index < 0 && text.Trim().StartsWith("0eb7", StringComparison.OrdinalIgnoreCase)) index = 0;
                 if (index >= 0) presentAs.SelectedIndex = index;
             }
         }
