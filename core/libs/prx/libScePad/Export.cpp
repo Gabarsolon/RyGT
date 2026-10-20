@@ -31,6 +31,9 @@ bool g_opened[PAD_MAX_PLAYERS] = {};
 
 bool g_wheelOpened = false;
 
+// How often the title reads the wheel through each path (logged every few seconds).
+int g_parsePad = 0, g_parseWheel = 0, g_readWheel = 0;
+
 // Logs the first few calls of each wheel-related function (the game's use of them is not
 // documented, so the log is how their arguments are learned).
 bool LogCall(int& count, int limit = 8) {
@@ -126,6 +129,7 @@ int APS5_VABI scePadDeviceClassParseData(int handle, const PadData* data, PadDev
  static int calls = 0;
  const bool log = LogCall(calls, 4);
  if (log) APS5_LOG_OUT("Pad: scePadDeviceClassParseData(handle %d)", handle);
+ ++(handle == PAD_WHEEL_HANDLE ? g_parseWheel : g_parsePad);
  if (SlotOfAnyHandle(handle) < 0) return PAD_ERROR_INVALID_HANDLE;
  if (data == nullptr || class_data == nullptr) return PAD_ERROR_INVALID_ARG;
  std::memset(class_data, 0, sizeof(*class_data));
@@ -154,6 +158,7 @@ int APS5_VABI scePadDeviceClassParseData(int handle, const PadData* data, PadDev
  const auto now = std::chrono::steady_clock::now();
  if (log || now >= nextReport) {
   nextReport = now + std::chrono::seconds(3);
+  APS5_LOG_OUT("Pad: wheel reads: parse pad %d, parse wheel %d, read wheel %d", g_parsePad, g_parseWheel, g_readWheel);
   APS5_LOG_OUT("Pad: wheel data: angle %.1f wheel %u throttle %u brake %u clutch %u valid %d", class_data->classData.steeringWheel.angle,
    class_data->classData.steeringWheel.wheel, class_data->classData.steeringWheel.accelerator, class_data->classData.steeringWheel.brake,
    class_data->classData.steeringWheel.clutch, class_data->dataValid);
@@ -304,6 +309,7 @@ int APS5_VABI scePadReadStateExt(int handle, PadData* data) {
  }
  if (handle != PAD_WHEEL_HANDLE || !g_wheelOpened) return PAD_ERROR_INVALID_HANDLE;
  if (data == nullptr) return PAD_ERROR_INVALID_ARG;
+ ++g_readWheel;
  const WheelState wheel = Pad::ReadWheel();
  std::memset(data, 0, sizeof(*data));
  data->buttons = wheel.buttons;

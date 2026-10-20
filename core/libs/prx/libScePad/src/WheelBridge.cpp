@@ -276,7 +276,16 @@ void WheelReport(const std::uint8_t* report, std::size_t length) {
 }
 
 bool WheelFeatureReport(int reportId, std::uint8_t* report, std::size_t length) {
-    if (!Wheel().IsFanatec() || reportId != 0x31 || report == nullptr) return false;
+    if (!Wheel().IsFanatec() || report == nullptr) return false;
+    if (reportId == 0x33) {
+        // The rim's extra inputs (analog paddles, dials, encoders), read while driving: all at
+        // rest. Without an answer the SDK's input update fails and the car cannot be driven.
+        std::uint8_t extra[64]{};
+        extra[0] = 0x33;
+        std::memcpy(report, extra, std::min<std::size_t>(length, sizeof(extra)));
+        return true;
+    }
+    if (reportId != 0x31) return false;
     // What the SDK reads: byte 3 the rim (1-18), bytes 7-8 the base's firmware version (big
     // endian; 16-bit constant forces need 674 or later), the rest settings left at zero.
     std::uint8_t config[64]{};
