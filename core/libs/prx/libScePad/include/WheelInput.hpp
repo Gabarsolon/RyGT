@@ -87,6 +87,13 @@ private:
         int damperEffect = -1;
         int frictionEffect = -1;
         WheelForces played;
+        float slowConstant = 0.0f;  // the title's constant force, smoothed (for the detail boost)
+        // Damping: the steering a moment ago, its speed (units per second, smoothed) and how the
+        // title's centering force relates to the steering (its sign gives the damping direction).
+        int lastSteering = 0;
+        std::chrono::steady_clock::time_point lastSteeringAt{};
+        float steeringSpeed = 0.0f;
+        float centering = 0.0f;
     };
     struct ActiveBinding {
         Pad::JoystickBinding binding;
@@ -110,7 +117,7 @@ private:
     void open(int deviceIndex);
     void close(SDL_JoystickID instanceId);
     void startSpring(Device& device);
-    void playForces(Device& device, const WheelForces& forces);
+    void playForces(Device& device, const WheelForces& forces, int steering);
     void rebuild();
     void addDefaults(Device& primary, std::vector<ActiveBinding>& out) const;
     bool userOverrides(const Pad::JoystickBinding& binding) const;

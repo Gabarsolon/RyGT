@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -314,6 +315,26 @@ int APS5_VABI scePadReadStateExt(int handle, PadData* data) {
  std::memset(data, 0, sizeof(*data));
  data->buttons = wheel.buttons;
  data->left_stick_x = data->left_stick_y = data->right_stick_x = data->right_stick_y = 128;
+ if (Pad::Wheel().IsFanatec()) {
+  // A Fanatec base reports its wheel in the pad data's device-unique block, which GT Sport's
+  // Fanatec port reads in a race (eboot 0x1c38174): steering (16 bits, centre 0x8000), then
+  // accelerator and brake (16 bits, released at 0xffff, with a deadzone of 3276 at that end),
+  // handbrake (byte 7) and clutch (byte 10) released at 0xff, and the H-shifter gear (byte 8,
+  // one bit per gear, 0 in neutral).
+  const auto pedal = [](std::uint16_t value) {
+   return static_cast<std::uint16_t>(0xffff - std::min<std::uint32_t>(0xffff, 3276u + static_cast<std::uint32_t>(value) * 62259u / 65535u));
+  };
+  const auto steering = static_cast<std::uint16_t>(std::clamp(wheel.steering + 32768, 0, 65535));
+  const std::uint16_t accelerator = pedal(wheel.throttle);
+  const std::uint16_t brake = pedal(wheel.brake);
+  data->device_unique_data_len = 12;
+  std::memcpy(data->device_unique_data + 0, &steering, 2);
+  std::memcpy(data->device_unique_data + 2, &accelerator, 2);
+  std::memcpy(data->device_unique_data + 4, &brake, 2);
+  data->device_unique_data[7] = 0xff;
+  data->device_unique_data[8] = 0;
+  data->device_unique_data[10] = static_cast<std::uint8_t>(0xff - (wheel.clutch >> 8));
+ }
  data->orientation_w = 1.0f;
  data->acceleration_y = 1.0f;
  data->connected = wheel.connected;

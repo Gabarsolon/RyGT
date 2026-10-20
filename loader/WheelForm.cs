@@ -73,13 +73,13 @@ namespace RyGT
         readonly List<int> deviceOrder = new List<int>();
         readonly object gate = new object();
         readonly Label status, deviceList, rawInput;
-        readonly NumericUpDown rotation, gain;
+        readonly NumericUpDown rotation, gain, damping, detail;
         readonly CheckBox invertForces, gameWheelMode;
         readonly ComboBox presentAs;
         // The wheel models the game can be told it has (ryty-wheel.ini "Present"); the game
         // uses that model's own force feedback driver.
-        static readonly string[] PresentNames = { "Logitech G29", "Fanatec (experimental: no driving yet)" };
-        static readonly string[] PresentIds = { "046d:c24f", "0eb7:0e05" };
+        static readonly string[] PresentNames = { "Fanatec direct drive (recommended)", "Logitech G29" };
+        static readonly string[] PresentIds = { "0eb7:0e05", "046d:c24f" };
         readonly Timer timer;
         Process probe;
 
@@ -170,6 +170,12 @@ namespace RyGT
             settings.Controls.Add(new Label { Text = "Force feedback strength (%)", AutoSize = true, Margin = new Padding(0, 6, 8, 0) });
             gain = new NumericUpDown { Minimum = 0, Maximum = 200, Increment = 10, Value = 100, Width = 80 };
             settings.Controls.Add(gain);
+            settings.Controls.Add(new Label { Text = "Damping (%, steadies the wheel on straights)", AutoSize = true, Margin = new Padding(0, 6, 8, 0) });
+            damping = new NumericUpDown { Minimum = 0, Maximum = 100, Increment = 5, Value = 10, Width = 80 };
+            settings.Controls.Add(damping);
+            settings.Controls.Add(new Label { Text = "Kerb and road detail (%, extra force for bumps)", AutoSize = true, Margin = new Padding(0, 6, 8, 0) });
+            detail = new NumericUpDown { Minimum = 0, Maximum = 200, Increment = 10, Value = 0, Width = 80 };
+            settings.Controls.Add(detail);
             invertForces = new DarkCheckBox { Text = "Reverse force feedback direction", AutoSize = true, Margin = new Padding(0, 4, 0, 0) };
             settings.Controls.Add(invertForces);
             settings.Controls.Add(new Label { AutoSize = true });
@@ -515,11 +521,13 @@ namespace RyGT
             if (settings.TryGetValue("rotation", out text) && int.TryParse(text, out value)) rotation.Value = Math.Max(rotation.Minimum, Math.Min(rotation.Maximum, value));
             if (settings.TryGetValue("ffbgain", out text) && int.TryParse(text, out value)) gain.Value = Math.Max(gain.Minimum, Math.Min(gain.Maximum, value));
             if (settings.TryGetValue("ffbinvert", out text)) invertForces.Checked = text == "1";
+            if (settings.TryGetValue("ffbdamping", out text) && int.TryParse(text, out value)) damping.Value = Math.Max(damping.Minimum, Math.Min(damping.Maximum, value));
+            if (settings.TryGetValue("ffbdetail", out text) && int.TryParse(text, out value)) detail.Value = Math.Max(detail.Minimum, Math.Min(detail.Maximum, value));
             if (settings.TryGetValue("padiswheel", out text)) gameWheelMode.Checked = text == "1";
             if (settings.TryGetValue("present", out text))
             {
                 int index = Array.FindIndex(PresentIds, id => string.Equals(id, text.Trim(), StringComparison.OrdinalIgnoreCase));
-                if (index < 0 && text.Trim().StartsWith("0eb7", StringComparison.OrdinalIgnoreCase)) index = 1;
+                if (index < 0 && text.Trim().StartsWith("0eb7", StringComparison.OrdinalIgnoreCase)) index = 0;
                 if (index >= 0) presentAs.SelectedIndex = index;
             }
         }
@@ -571,6 +579,8 @@ namespace RyGT
                 { "Rotation", ((int)rotation.Value).ToString(CultureInfo.InvariantCulture) },
                 { "FfbGain", ((int)gain.Value).ToString(CultureInfo.InvariantCulture) },
                 { "FfbInvert", invertForces.Checked ? "1" : "0" },
+                { "FfbDamping", ((int)damping.Value).ToString(CultureInfo.InvariantCulture) },
+                { "FfbDetail", ((int)detail.Value).ToString(CultureInfo.InvariantCulture) },
                 { "PadIsWheel", gameWheelMode.Checked ? "1" : "0" },
                 { "Present", PresentIds[Math.Max(0, presentAs.SelectedIndex)] },
             };

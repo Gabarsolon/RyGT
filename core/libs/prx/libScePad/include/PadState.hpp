@@ -90,13 +90,18 @@ struct WheelSettings {
     int rotation = 900;          // degrees lock to lock, as set in the wheel's software
     unsigned pedalMax = 65535;   // full-press value reported to the game
     bool angleRadians = false;   // steering angle in radians instead of degrees
-    // The wheel model the game is told it has (a Logitech G29 by default).
-    unsigned vendor = 0x046d;
-    unsigned product = 0xc24f;
+    // The wheel model the game is told it has: a Fanatec direct-drive base by default (16-bit
+    // forces), or a Logitech G29 (046d:c24f).
+    unsigned vendor = 0x0eb7;
+    unsigned product = 0x0e05;
     bool IsFanatec() const { return vendor == 0x0eb7; }
     int capability = 0;          // steering-wheel capability bits reported to the game
     int ffbGain = 100;           // force feedback strength in percent
     bool ffbInvert = false;      // reverse the direction of the title's constant forces
+    // Damping always applied on top of the title's, 0-100 (stops a strong wheel oscillating).
+    int ffbDamping = 10;
+    // Extra strength for quick changes in the title's force (kerbs, bumps), 0-200 percent.
+    int ffbDetail = 0;
     // The player's own pad reports itself as the steering wheel too, as a G29 does on a PS4;
     // the title only turns on its wheel mode (and force feedback) for such a pad. Off by
     // default: in that mode the paddles do not shift yet.
