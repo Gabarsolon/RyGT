@@ -84,12 +84,16 @@ Optional, beside the game executable, with `Key = Value` lines:
 | `Rotation` | 900 | Lock-to-lock degrees, as set in the wheel's own software. |
 | `PedalMax` | 65535 | Pedal value reported at full press. |
 | `AngleUnit` | `deg` | Unit of the reported steering angle (`deg` or `rad`). |
-| `Present` | `046d:c24f` | USB vendor:product the wheel is presented as. |
+| `Present` | `046d:c24f` | USB vendor:product the wheel is presented as. `0eb7:0e05` presents a Fanatec direct-drive base instead (experimental, see below). |
 | `Capability` | 0 | Steering-wheel capability bits reported to the game. |
 | `FfbGain` | 100 | Force feedback strength in percent (0-200). |
 | `FfbInvert` | 0 | 1 reverses the direction of constant forces. |
-| `PadIsWheel` | 0 | 1 makes player 1's pad report itself as the steering wheel too, as a G29 does on a PS4; GT Sport only enables its wheel mode for such a pad. Experimental: in that mode the paddles do not shift yet. |
+| `PadIsWheel` | 0 | 1 makes player 1's pad report itself as the steering wheel too. Leave it at 0: with it on, GT Sport sends no driving forces through logiWheel and ignores the wheel in a race. |
 
-### Force feedback (experimental)
+### Force feedback
 
-`logiWheel.prx` sends a G29's force feedback as output report 0x30 through `scePadOutputReport`: a report-id byte followed by Logitech classic 8-byte commands. libScePad tracks the four effect slots (constant, variable, spring with its force cap, damper, friction, play/stop, autocenter) and plays them on the wheel as SDL haptic effects. logiWheel's report thread runs on a kernel timer event (`sceKernelAddTimerEvent`). With `PadIsWheel = 1` GT Sport sets up its effects and the reports reach the wheel (its centering spring is felt), but the game's per-frame force values stay at zero so far, so driving forces are not working yet.
+`logiWheel.prx` sends a G29's force feedback as output report 0x30 through `scePadOutputReport`: a report-id byte followed by Logitech classic 8-byte commands. libScePad tracks the four effect slots (constant, variable, spring with its force cap, damper, friction, play/stop, autocenter) and plays them on the wheel as SDL haptic effects. logiWheel's report thread runs on a kernel timer event (`sceKernelAddTimerEvent`). With the defaults (`Present = 046d:c24f`, `PadIsWheel = 0`, `Capability = 0`) GT Sport drives the wheel through logiWheel and sends its road forces.
+
+### Presenting a Fanatec wheel (experimental)
+
+With `Present = 0eb7:0e05` GT Sport uses its Fanatec SDK instead. The SDK opens the wheel with `scePadOpenExt`, reads its configuration (feature report 0x31: rim, pedals, firmware) and rim inputs (feature report 0x33), and sends one 7-byte slot command per output report 0x30 (constant force in 8 or 16 bits, spring, damper, friction), which libScePad decodes into the wheel's forces. The game only takes this path with `PadIsWheel = 1`, and in a race it then ignores the wheel's steering and pedals, so this is not usable for driving yet.

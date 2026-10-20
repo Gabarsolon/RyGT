@@ -78,7 +78,7 @@ namespace RyGT
         readonly ComboBox presentAs;
         // The wheel models the game can be told it has (ryty-wheel.ini "Present"); the game
         // uses that model's own force feedback driver.
-        static readonly string[] PresentNames = { "Logitech G29", "Fanatec (direct drive)" };
+        static readonly string[] PresentNames = { "Logitech G29", "Fanatec (experimental: no driving yet)" };
         static readonly string[] PresentIds = { "046d:c24f", "0eb7:0e05" };
         readonly Timer timer;
         Process probe;
@@ -173,15 +173,13 @@ namespace RyGT
             invertForces = new DarkCheckBox { Text = "Reverse force feedback direction", AutoSize = true, Margin = new Padding(0, 4, 0, 0) };
             settings.Controls.Add(invertForces);
             settings.Controls.Add(new Label { AutoSize = true });
-            gameWheelMode = new DarkCheckBox { Text = "Game wheel mode (experimental: needed for force feedback; paddles do not shift yet)", AutoSize = true, Margin = new Padding(0, 4, 0, 0) };
+            gameWheelMode = new DarkCheckBox { Text = "Pad reports as the wheel (experimental, leave off: the game then ignores the wheel's forces and input)", AutoSize = true, Margin = new Padding(0, 4, 0, 0) };
             settings.Controls.Add(gameWheelMode);
             settings.SetColumnSpan(gameWheelMode, 2);
             settings.Controls.Add(new Label { Text = "Game sees the wheel as (its force feedback driver)", AutoSize = true, Margin = new Padding(0, 6, 8, 0) });
             presentAs = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180, FlatStyle = FlatStyle.Flat };
             presentAs.Items.AddRange(PresentNames);
             presentAs.SelectedIndex = 0;
-            // The Fanatec driver only runs in the game's wheel mode.
-            presentAs.SelectedIndexChanged += delegate { if (presentAs.SelectedIndex == 1) gameWheelMode.Checked = true; };
             settings.Controls.Add(presentAs);
             outer.Controls.Add(settings);
 
