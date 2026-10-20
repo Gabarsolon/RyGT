@@ -45,12 +45,14 @@ frames, and rare frames are drawn from a wrong camera. Patch 0041 makes shadGT a
 by itself at configure time. Patch 0042 lets the non-renderer host libraries link again (a no-op
 Controllers window toggle), and 0043 replaces CreateFileMapping2, which Wine and Proton before 11
 lack, with CreateFileMappingW so that every host library loads under Proton 10 (see
-[docs/user/LINUX.md](../docs/user/LINUX.md)).
+[docs/user/LINUX.md](../docs/user/LINUX.md)). Patch 0044 (FIX-160) makes the native renderer and
+the background shader workers read guest memory safely, since the game can release it while
+the renderer still reads it (two crashes in a Linux tester's runs).
 
 `0019-ghost-quad-sample-mask` (Gabarsolon) is applied in shadGT after the native renderer, merged
 with its larger push block (the quad sample mask follows the four buffer-offset vectors).
 
 shadGT's branch `ryty-gpu` has every patch applied (commit `84cf50ce`, which also skips screenshots of
 an empty picture); building from it is the simplest way to get the current renderer.
-Patches 0042-0043 are on shadGT's local branch `linux-proton` (commit `c2e584c3`), not yet on
+Patches 0042-0044 are on shadGT's branch `linux-proton` (commit `cb57a2d4`), not yet on
 `ryty-gpu`.
