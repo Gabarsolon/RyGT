@@ -286,12 +286,14 @@ bool WheelFeatureReport(int reportId, std::uint8_t* report, std::size_t length) 
         return true;
     }
     if (reportId != 0x31) return false;
-    // What the SDK reads: byte 3 the rim (1-18), bytes 7-8 the base's firmware version (big
-    // endian; 16-bit constant forces need 674 or later), the rest settings left at zero.
+    // What the SDK reads: byte 3 the rim (1-18), byte 6 the pedals on the base (1 ClubSport,
+    // 2 CSL; without pedals the title ignores the pedal axes), bytes 7-8 the base's firmware
+    // version (big endian; 16-bit constant forces need 674 or later), the rest left at zero.
     std::uint8_t config[64]{};
     config[0] = 0x31;
     config[2] = 0x01;
     config[3] = 0x01;
+    config[6] = 0x01;  // ClubSport pedals (with a clutch)
     config[7] = 0x02;
     config[8] = 0xb0;  // firmware 688
     std::memcpy(report, config, std::min<std::size_t>(length, sizeof(config)));

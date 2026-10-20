@@ -314,15 +314,6 @@ int APS5_VABI scePadReadStateExt(int handle, PadData* data) {
  std::memset(data, 0, sizeof(*data));
  data->buttons = wheel.buttons;
  data->left_stick_x = data->left_stick_y = data->right_stick_x = data->right_stick_y = 128;
- if (Pad::Wheel().IsFanatec()) {
-  // A Fanatec base in PS4 mode reports like a pad: steering on the left stick, throttle and
-  // brake on the R2 and L2 triggers. The title's Fanatec support drives with these.
-  data->left_stick_x = static_cast<std::uint8_t>((wheel.steering + 32768) >> 8);
-  data->analog_buttons_r2 = static_cast<std::uint8_t>(wheel.throttle >> 8);
-  data->analog_buttons_l2 = static_cast<std::uint8_t>(wheel.brake >> 8);
-  if (data->analog_buttons_r2 > 30) data->buttons |= 0x200;
-  if (data->analog_buttons_l2 > 30) data->buttons |= 0x100;
- }
  data->orientation_w = 1.0f;
  data->acceleration_y = 1.0f;
  data->connected = wheel.connected;
