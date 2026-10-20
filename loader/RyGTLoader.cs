@@ -35,6 +35,144 @@ namespace RyGT
             out IntPtr device, out int featureLevel, out IntPtr immediateContext);
     }
 
+    /// Wine (Linux, Steam Proton): its kernel32 has wine_get_unix_file_name. Wine before 11 cannot
+    /// make Windows links (CreateSymbolicLink does nothing there and mklink /J fails), so under Wine
+    /// the game's files and folders are linked with Unix symbolic links, which Wine follows like the
+    /// files themselves (and reports as reparse points when they are folders).
+    static class Wine
+    {
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+        static extern IntPtr GetModuleHandle(string name);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Ansi, BestFitMapping = false)]
+        static extern IntPtr GetProcAddress(IntPtr module, string name);
+
+        [DllImport("kernel32.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode, ExactSpelling = true)]
+        static extern IntPtr wine_get_unix_file_name(string dosPath);
+
+        [DllImport("kernel32.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, ExactSpelling = true,
+                   BestFitMapping = false)]
+        static extern IntPtr wine_get_dos_file_name(string unixPath);
+
+        [DllImport("kernel32.dll")]
+        static extern IntPtr GetProcessHeap();
+
+        [DllImport("kernel32.dll")]
+        static extern bool HeapFree(IntPtr heap, uint flags, IntPtr memory);
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        struct StartupInfo
+        {
+            public int cb;
+            public string reserved, desktop, title;
+            public int x, y, width, height, columns, rows, fill, flags;
+            public short show, reserved2;
+            public IntPtr reserved3, input, output, error;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct ProcessInformation
+        {
+            public IntPtr process, thread;
+            public int processId, threadId;
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        static extern bool CreateProcess(string application, StringBuilder commandLine, IntPtr processAttributes,
+            IntPtr threadAttributes, bool inheritHandles, uint flags, IntPtr environment, string directory,
+            ref StartupInfo startup, out ProcessInformation information);
+
+        [DllImport("kernel32.dll")]
+        static extern bool CloseHandle(IntPtr handle);
+
+        static readonly bool detected = DetectWine();
+
+        public static bool Detected { get { return detected; } }
+
+        static bool DetectWine()
+        {
+            try
+            {
+                IntPtr kernel = GetModuleHandle("kernel32.dll");
+                return kernel != IntPtr.Zero && GetProcAddress(kernel, "wine_get_unix_file_name") != IntPtr.Zero;
+            }
+            catch { return false; }
+        }
+
+        /// The Unix path of a Windows path (whose last part need not exist yet).
+        public static string UnixPath(string path)
+        {
+            IntPtr unix = wine_get_unix_file_name(Path.GetFullPath(path));
+            if (unix == IntPtr.Zero) throw new Exception("Wine has no Unix path for " + path + ".");
+            try
+            {
+                int length = 0;
+                while (Marshal.ReadByte(unix, length) != 0) length++;
+                var bytes = new byte[length];
+                Marshal.Copy(unix, bytes, 0, length);
+                return Encoding.UTF8.GetString(bytes);
+            }
+            finally { HeapFree(GetProcessHeap(), 0, unix); }
+        }
+
+        static string DosPath(string unixPath)
+        {
+            IntPtr dos = wine_get_dos_file_name(unixPath);
+            if (dos == IntPtr.Zero) throw new Exception("Wine has no Windows path for " + unixPath + ".");
+            try { return Marshal.PtrToStringUni(dos); }
+            finally { HeapFree(GetProcessHeap(), 0, dos); }
+        }
+
+        static string Quote(string unixPath)
+        {
+            return "'" + unixPath.Replace("'", "'\\''") + "'";
+        }
+
+        /// Makes each link (key) a Unix symbolic link to its target (value), replacing an earlier
+        /// symbolic link but never a real file or folder, with one /bin/sh script. Wine starts Unix
+        /// programs detached, so the script's last line writes a file to wait for.
+        public static void Link(IEnumerable<KeyValuePair<string, string>> links)
+        {
+            string name = "rygt-link-" + Guid.NewGuid().ToString("N");
+            string script = Path.Combine(Path.GetTempPath(), name + ".sh");
+            string done = Path.Combine(Path.GetTempPath(), name + ".done");
+            var text = new StringBuilder();
+            text.Append("#!/bin/sh\n# Written by RyGT.exe: links the game's files under Wine.\n");
+            text.Append("PATH=/usr/local/bin:/usr/bin:/bin\n");
+            text.Append("link() { if [ -L \"$2\" ] || [ ! -e \"$2\" ]; then ln -sfn \"$1\" \"$2\"; fi; }\n");
+            foreach (var pair in links)
+            {
+                // The link's folder exists; its last part may not (Wine still gives the Unix path).
+                string folder = UnixPath(Path.GetDirectoryName(Path.GetFullPath(pair.Key)));
+                text.Append("link " + Quote(UnixPath(pair.Value)) + " " +
+                            Quote(folder.TrimEnd('/') + "/" + Path.GetFileName(pair.Key)) + "\n");
+            }
+            text.Append("echo done > " + Quote(UnixPath(done)) + "\n");
+            File.WriteAllText(script, text.ToString(), new UTF8Encoding(false));
+            try
+            {
+                var startup = new StartupInfo { cb = Marshal.SizeOf(typeof(StartupInfo)) };
+                ProcessInformation information;
+                var command = new StringBuilder("\"" + DosPath("/bin/sh") + "\" \"" + UnixPath(script) + "\"");
+                const uint CreateNoWindow = 0x08000000;
+                if (!CreateProcess(null, command, IntPtr.Zero, IntPtr.Zero, false, CreateNoWindow, IntPtr.Zero, null,
+                                   ref startup, out information))
+                    throw new Exception("Could not start /bin/sh to link the game's files (error " +
+                                        Marshal.GetLastWin32Error() + ").");
+                if (information.thread != IntPtr.Zero) CloseHandle(information.thread);
+                if (information.process != IntPtr.Zero) CloseHandle(information.process);
+                var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(60);
+                while (!File.Exists(done) && DateTime.UtcNow < deadline) Thread.Sleep(50);
+                if (!File.Exists(done)) throw new Exception("Linking the game's files with /bin/sh did not finish.");
+            }
+            finally
+            {
+                try { File.Delete(script); } catch { }
+                try { File.Delete(done); } catch { }
+            }
+        }
+    }
+
     /// Dark colors for the loader window.
     static class Dark
     {
@@ -285,12 +423,14 @@ namespace RyGT
 
         public static bool IsPrepared(string exe)
         {
-            return HasIcon(exe) && ReadSubsystem(exe) == GuiSubsystem;
+            return (Wine.Detected || HasIcon(exe)) && ReadSubsystem(exe) == GuiSubsystem;
         }
 
         public static void Prepare(string exe)
         {
-            if (!HasIcon(exe)) ApplyIcon(exe);
+            // (Not the icon under Wine: it is only for Windows' Explorer, and this keeps Set up from
+            // depending on Wine rewriting the resources of a 100 MB program.)
+            if (!Wine.Detected && !HasIcon(exe)) ApplyIcon(exe);
             if (ReadSubsystem(exe) != GuiSubsystem) WriteSubsystem(exe, GuiSubsystem);
         }
 
@@ -1287,7 +1427,7 @@ namespace RyGT
                 Path.Combine(work, "port-report.json") + "\" \"" + Path.Combine(work, "eboot.elf") + "\" \"" + Exe + "\"", work);
             if (code != 0 || !File.Exists(Exe)) throw new Exception("The converter failed (exit code " + code + ").");
             GameExe.Prepare(Exe);
-            Log("Gave GTSport.exe the ryGT icon and made it a Windows program.");
+            Log(Wine.Detected ? "Made GTSport.exe a Windows program." : "Gave GTSport.exe the ryGT icon and made it a Windows program.");
 
             // 3. app0: the game's files, the update's over the base game's, linked rather than copied.
             SetStatus("Linking the game files...");
@@ -1555,14 +1695,29 @@ namespace RyGT
                 }
             }
             int linked = 0;
+            var unixLinks = new Dictionary<string, string>(); // under Wine: link -> target
             foreach (var pair in files)
             {
                 string target = Path.Combine(app0, pair.Key);
                 if (File.Exists(target)) File.Delete(target);
                 if (Native.CreateHardLink(target, pair.Value, IntPtr.Zero)) { linked++; continue; }
+                if (Wine.Detected) { unixLinks[target] = pair.Value; continue; }
                 if (Native.CreateSymbolicLink(target, pair.Value, 2)) { linked++; continue; } // needs Developer Mode
                 throw new Exception("Could not link " + pair.Value + ". Put the RyGT folder on the same drive as the game, " +
                                     "or turn on Developer Mode in Windows settings.");
+            }
+            if (Wine.Detected)
+            {
+                foreach (var pair in dirs) unixLinks[Path.Combine(app0, pair.Key)] = pair.Value;
+                Wine.Link(unixLinks);
+                foreach (var pair in unixLinks)
+                {
+                    if (dirs.ContainsKey(Path.GetFileName(pair.Key)) ? !Directory.Exists(pair.Key) : !File.Exists(pair.Key))
+                        throw new Exception("Could not link " + pair.Value + " into app0.");
+                    if (!dirs.ContainsKey(Path.GetFileName(pair.Key))) linked++;
+                }
+                Log("Linked " + linked + " game files and " + dirs.Count + " folders into app0.");
+                return;
             }
             foreach (var pair in dirs)
             {
@@ -1617,12 +1772,22 @@ namespace RyGT
                     Directory.Delete(local, true);
                 }
                 Directory.CreateDirectory(Path.GetDirectoryName(local));
-                var link = Process.Start(new ProcessStartInfo("cmd.exe", "/c mklink /J \"" + local + "\" \"" + SharedShaderCache + "\"")
+                bool linked;
+                if (Wine.Detected)
                 {
-                    CreateNoWindow = true, UseShellExecute = false
-                });
-                link.WaitForExit();
-                if (link.ExitCode == 0 && Directory.Exists(local))
+                    Wine.Link(new Dictionary<string, string> { { local, SharedShaderCache } });
+                    linked = Directory.Exists(local);
+                }
+                else
+                {
+                    var link = Process.Start(new ProcessStartInfo("cmd.exe", "/c mklink /J \"" + local + "\" \"" + SharedShaderCache + "\"")
+                    {
+                        CreateNoWindow = true, UseShellExecute = false
+                    });
+                    link.WaitForExit();
+                    linked = link.ExitCode == 0 && Directory.Exists(local);
+                }
+                if (linked)
                 {
                     Log("Shaders are kept in " + SharedShaderCache + ", shared by every RyGT folder.");
                     return;
