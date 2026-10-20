@@ -20,7 +20,9 @@ namespace RyGT
         [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         public static extern bool CreateHardLink(string newFile, string existingFile, IntPtr security);
 
+        // Returns a one-byte BOOLEAN, not a BOOL.
         [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        [return: MarshalAs(UnmanagedType.I1)]
         public static extern bool CreateSymbolicLink(string link, string target, int flags);
 
         [DllImport("dwmapi.dll")]
@@ -1694,15 +1696,20 @@ namespace RyGT
                     if (!name.Equals("sce_module", StringComparison.OrdinalIgnoreCase)) dirs[name] = dir;
                 }
             }
-            int linked = 0;
+            // GT Sport only uses its data archives when gt.idx is there; without it the game closes
+            // right after its splash screen.
+            if (!files.ContainsKey("gt.idx"))
+                throw new Exception("Neither game folder has gt.idx. Pick the GT Sport folder (CUSA03220) and its update, " +
+                                    "the folders with gt.idx and the gt*.vol files.");
+            int linked = 0, hard = 0, symbolic = 0;
             var unixLinks = new Dictionary<string, string>(); // under Wine: link -> target
             foreach (var pair in files)
             {
                 string target = Path.Combine(app0, pair.Key);
                 if (File.Exists(target)) File.Delete(target);
-                if (Native.CreateHardLink(target, pair.Value, IntPtr.Zero)) { linked++; continue; }
+                if (Native.CreateHardLink(target, pair.Value, IntPtr.Zero)) { linked++; hard++; continue; }
                 if (Wine.Detected) { unixLinks[target] = pair.Value; continue; }
-                if (Native.CreateSymbolicLink(target, pair.Value, 2)) { linked++; continue; } // needs Developer Mode
+                if (Native.CreateSymbolicLink(target, pair.Value, 2)) { linked++; symbolic++; continue; } // needs Developer Mode
                 throw new Exception("Could not link " + pair.Value + ". Put the RyGT folder on the same drive as the game, " +
                                     "or turn on Developer Mode in Windows settings.");
             }
@@ -1728,7 +1735,32 @@ namespace RyGT
                 using (var process = Process.Start(info)) process.WaitForExit();
                 if (!Directory.Exists(target)) throw new Exception("Could not link the folder " + pair.Value + ".");
             }
-            Log("Linked " + linked + " game files and " + dirs.Count + " folders into app0.");
+            foreach (var pair in files)
+            {
+                string problem = ReadProblem(Path.Combine(app0, pair.Key), new FileInfo(pair.Value).Length);
+                if (problem != null)
+                    throw new Exception("app0\\" + pair.Key + " " + problem + " after linking it to " + pair.Value +
+                                        ". Put the RyGT folder on the same drive as the game and press Set up again.");
+            }
+            Log("Linked " + linked + " game files (" + hard + " hard links, " + symbolic + " symbolic links) and " +
+                dirs.Count + " folders into app0.");
+        }
+
+        /// Why a linked game file can't be used (missing, unreadable or a different size), or null.
+        /// Opening it follows a symbolic link, unlike FileInfo.
+        static string ReadProblem(string path, long expectedLength)
+        {
+            try
+            {
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                {
+                    if (expectedLength >= 0 && stream.Length != expectedLength)
+                        return "has " + stream.Length + " bytes instead of " + expectedLength;
+                }
+                return null;
+            }
+            catch (FileNotFoundException) { return "is missing"; }
+            catch (Exception e) { return "can't be read (" + e.Message.TrimEnd('.') + ")"; }
         }
 
         static void CopyDirectory(string source, string destination)
@@ -1823,6 +1855,15 @@ namespace RyGT
         void Play()
         {
             if (!File.Exists(Exe)) { MessageBox.Show(this, "Press Set up first."); return; }
+            // Without its data index GT Sport closes right after the splash screen.
+            string dataProblem = ReadProblem(Path.Combine(root, "app0", "gt.idx"), -1);
+            if (dataProblem != null)
+            {
+                MessageBox.Show(this, "GT Sport's data index app0\\gt.idx " + dataProblem + ", so the game can't start.\n\n" +
+                                "Press Set up again. If the RyGT folder is on a different drive than the game, move it " +
+                                "to the game's drive first.");
+                return;
+            }
             var cacheDir = new DirectoryInfo(Path.Combine(root, "user", "cache"));
             if (cacheDir.Exists && (cacheDir.Attributes & FileAttributes.ReparsePoint) == 0)
             {
