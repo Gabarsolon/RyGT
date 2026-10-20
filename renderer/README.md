@@ -42,10 +42,15 @@ against 29 in the Tokyo rain benchmark). The launcher's "Renderer" dropdown pick
 (`GPU.native_renderer`; `RYGT_NATIVE=1` or `=0` overrides); the old renderer stays the default.
 Known open problems: in Tokyo at night the cockpit's ambient light flickers between warm and dark
 frames, and rare frames are drawn from a wrong camera. Patch 0041 makes shadGT apply the VMA patch
-by itself at configure time.
+by itself at configure time. Patch 0042 lets the non-renderer host libraries link again (a no-op
+Controllers window toggle), and 0043 replaces CreateFileMapping2, which Wine and Proton before 11
+lack, with CreateFileMappingW so that every host library loads under Proton 10 (see
+[docs/user/LINUX.md](../docs/user/LINUX.md)).
 
 `0019-ghost-quad-sample-mask` (Gabarsolon) is applied in shadGT after the native renderer, merged
 with its larger push block (the quad sample mask follows the four buffer-offset vectors).
 
 shadGT's branch `ryty-gpu` has every patch applied (commit `84cf50ce`, which also skips screenshots of
 an empty picture); building from it is the simplest way to get the current renderer.
+Patches 0042-0043 are on shadGT's local branch `linux-proton` (commit `c2e584c3`), not yet on
+`ryty-gpu`.
