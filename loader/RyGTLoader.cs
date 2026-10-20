@@ -624,8 +624,15 @@ namespace RyGT
                     form.ShowDialog(this);
                 }
             };
+            // Racing wheels and pedals (ryty-input.ini / ryty-wheel.ini, read by libScePad).
+            var wheelButton = new Button { Text = "Steering wheel...", AutoSize = true };
+            wheelButton.Click += delegate
+            {
+                using (var form = new WheelForm(root)) form.ShowDialog(this);
+            };
             controlButtons.Controls.Add(portsButton);
             controlButtons.Controls.Add(bindingsButton);
+            controlButtons.Controls.Add(wheelButton);
             controls.Controls.Add(controlButtons);
             var triggerLabel = new Label
             {
@@ -1751,21 +1758,24 @@ namespace RyGT
                 }
                 return 0;
             }
-            if (args.Length == 2 && (args[0] == "--snapshot-ports" || args[0] == "--snapshot-bindings"))
+            if (args.Length == 2 && (args[0] == "--snapshot-ports" || args[0] == "--snapshot-bindings" || args[0] == "--snapshot-wheel"))
             {
-                // The Controller ports or Button bindings window as a PNG (nothing is saved).
+                // The Controller ports, Button bindings or Steering wheel window as a PNG (nothing is saved).
                 string root = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
                 using (Form form = args[0] == "--snapshot-ports"
                            ? (Form)new PortsForm("", null, (ports, names) => { })
-                           : new ControlsForm(root, 1, player => { }))
+                           : args[0] == "--snapshot-wheel"
+                               ? (Form)new WheelForm(root)
+                               : new ControlsForm(root, 1, player => { }))
                 {
                     form.StartPosition = FormStartPosition.Manual;
                     form.Location = new Point(-4000, -4000);
                     form.ShowInTaskbar = false;
                     form.Show();
                     Application.DoEvents();
-                    Thread.Sleep(200);
-                    Application.DoEvents();
+                    // The wheel window shows live state from its probe; give it a moment to arrive.
+                    var settle = DateTime.Now.AddMilliseconds(args[0] == "--snapshot-wheel" ? 2000 : 200);
+                    while (DateTime.Now < settle) { Application.DoEvents(); Thread.Sleep(20); }
                     using (var image = new Bitmap(form.ClientSize.Width, form.ClientSize.Height))
                     {
                         form.DrawToBitmap(image, new Rectangle(Point.Empty, form.ClientSize));
