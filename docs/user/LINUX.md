@@ -5,8 +5,9 @@ itself. It needs **Proton 10 or newer** (or Wine 10 or newer): older versions la
 functions that RyGT's libraries use, and the game does not start.
 
 > **Status:** RyGT is checked against Proton 10 and 11: every program and library in a release
-> loads there, and under Wine the launcher links the game's files with Linux symbolic links. It has
-> not been played on Linux yet, so please report what works and what doesn't.
+> loads there, and under Wine the launcher links the game's files with Linux symbolic links. The
+> first test under Proton got through Set up, the menus and into a race. Please report what works
+> and what doesn't.
 
 ## What you need
 
