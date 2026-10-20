@@ -35,10 +35,8 @@ The first boot builds shaders on the splash screen, as on Windows.
 ## Where things are
 
 - Logs: the `logs` folder in the RyGT folder, as on Windows.
-- Shaders: in the entry's Proton prefix, at
-  `~/.local/share/Steam/steamapps/compatdata/<number>/pfx/drive_c/users/steamuser/AppData/Local/RyGT/shader-cache`.
-  The number is the entry's id; after the first start it is usually the newest folder in
-  `compatdata`.
+- Shaders: `user\cache` in the RyGT folder. Everything RyGT makes stays in its folder; only the
+  game files are linked from where they are.
 
 ## Controllers and wheels
 
@@ -72,7 +70,7 @@ desktop PC: GT Sport is heavy on the CPU.
 
 ## What RyGT does differently under Wine
 
-- The launcher links `app0` and the shared shader folder with Linux symbolic links (`ln -s`),
+- The launcher links `app0` with Linux symbolic links (`ln -s`),
   because Wine before 11 cannot make Windows links.
 - `GTSport.exe` keeps Wine's default program icon; the icon only matters to Windows' Explorer.
 - libkernel converts local time with the time zone's rules for the year when Windows' `...Ex` time
