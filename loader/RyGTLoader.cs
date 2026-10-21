@@ -4,6 +4,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -261,17 +262,47 @@ namespace RyGT
         /// Paints what lies under `control`: the banner picture, or the nearest opaque parent's color.
         public static void PaintUnder(Control control, Graphics g)
         {
+            // See-through cards between the control and what is under them, innermost first.
+            var glass = new List<Card>();
             for (var parent = control.Parent; parent != null; parent = parent.Parent)
             {
                 var hero = parent as Hero;
-                if (hero != null) { hero.DrawUnder(control, g); return; }
+                if (hero != null) { hero.DrawUnder(control, g); FillGlass(glass, control, g); return; }
+                var card = parent as Card;
+                if (card != null && card.Fill.A < 255) { glass.Add(card); continue; }
+                var backdrop = parent as IBackdrop;
+                if (backdrop != null && backdrop.DrawBackdrop(control, g, false)) { FillGlass(glass, control, g); return; }
                 if (parent.BackColor.A == 255)
                 {
                     using (var back = new SolidBrush(parent.BackColor)) g.FillRectangle(back, control.ClientRectangle);
+                    FillGlass(glass, control, g);
                     return;
                 }
             }
             g.Clear(Back);
+            FillGlass(glass, control, g);
+        }
+
+        static void FillGlass(List<Card> glass, Control control, Graphics g)
+        {
+            for (int i = glass.Count - 1; i >= 0; --i)
+            {
+                using (var fill = new SolidBrush(glass[i].Fill)) g.FillRectangle(fill, control.ClientRectangle);
+            }
+        }
+
+        /// Gives the controls that take their parent's color a transparent one, so the window's
+        /// picture shows through them (the cards, fields, buttons and lists paint their own).
+        public static void SeeThrough(Control control)
+        {
+            foreach (Control child in control.Controls)
+            {
+                bool own = child is Card || child is Hero || child is TextBoxBase || child is ListControl || child is ButtonBase ||
+                           child is TrackBar || child is UpDownBase || child is ListItem || child is DarkBar;
+                if (!own && !TypeDescriptor.GetProperties(child)["BackColor"].ShouldSerializeValue(child))
+                    child.BackColor = Color.Transparent;
+                if (!(child is TextBoxBase) && !(child is ListControl) && !(child is UpDownBase)) SeeThrough(child);
+            }
         }
 
         /// Draws a button as a rounded rectangle: white with dark text for the main action (Tag
@@ -353,6 +384,13 @@ namespace RyGT
             };
             combo.HandleCreated += delegate { Native.SetWindowTheme(combo.Handle, "DarkMode_CFD", null); };
         }
+    }
+
+    /// A window that paints a picture behind its controls (the launcher: launcher\background.png).
+    interface IBackdrop
+    {
+        /// The picture as it lies under `control`; `raw` without the darkening. False without one.
+        bool DrawBackdrop(Control control, Graphics g, bool raw);
     }
 
     /// A check box drawn in the loader's colors: a dark rounded square, red with a white tick when checked.
@@ -438,9 +476,9 @@ namespace RyGT
                 using (var path = Dark.RoundedRect(r, 6))
                 {
                     outside.Exclude(path);
-                    var parent = Parent;
-                    while (parent != null && parent.BackColor.A < 255) parent = parent.Parent;
-                    using (var back = new SolidBrush(parent != null ? parent.BackColor : Dark.Back)) g.FillRegion(back, outside);
+                    g.SetClip(outside, CombineMode.Replace);
+                    Dark.PaintUnder(this, g);
+                    g.ResetClip();
                     g.SmoothingMode = SmoothingMode.AntiAlias;
                     // The flat style's inner white line, then the arrow's area.
                     using (var inner = new Pen(Dark.Field)) g.DrawRectangle(inner, 1, 1, Width - 3, Height - 3);
@@ -462,12 +500,15 @@ namespace RyGT
     {
         public float Radius = Dark.Radius;
         public Color Edge = Dark.Border;
+        /// The card's color; a translucent one lets the window's picture show through it.
+        public readonly Color Fill;
 
         public Card(Color fill)
         {
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer |
-                     ControlStyles.ResizeRedraw, true);
-            BackColor = fill;
+                     ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
+            Fill = fill;
+            BackColor = fill.A == 255 ? fill : Color.Transparent;
             ColumnCount = 1;
             ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         }
@@ -480,7 +521,7 @@ namespace RyGT
             var r = new RectangleF(0.5f, 0.5f, Width - 1f, Height - 1f);
             using (var path = Dark.RoundedRect(r, Radius))
             {
-                using (var fill = new SolidBrush(BackColor)) g.FillPath(fill, path);
+                using (var fill = new SolidBrush(Fill)) g.FillPath(fill, path);
                 if (!Edge.IsEmpty) using (var pen = new Pen(Edge)) g.DrawPath(pen, path);
             }
         }
@@ -501,11 +542,16 @@ namespace RyGT
             BackColor = Color.FromArgb(20, 20, 20);
         }
 
-        /// The banner at the current size, drawn once per size; its controls copy their part of it.
+        Point cachedAt;
+
+        /// The banner at the current size and place, drawn once; its controls copy their part of it.
         Bitmap Picture()
         {
             var size = new Size(Math.Max(1, Width), Math.Max(1, Height));
-            if (cache != null && cache.Size == size) return cache;
+            var form = FindForm();
+            var at = form != null && IsHandleCreated ? form.PointToClient(PointToScreen(Point.Empty)) : Point.Empty;
+            if (cache != null && cache.Size == size && at == cachedAt) return cache;
+            cachedAt = at;
             if (cache != null) cache.Dispose();
             cache = new Bitmap(size.Width, size.Height);
             using (var art = new Bitmap(size.Width, size.Height))
@@ -513,13 +559,19 @@ namespace RyGT
                 var r = new Rectangle(Point.Empty, size);
                 using (var g = Graphics.FromImage(art))
                 {
-                    if (picture != null)
+                    var backdrop = form as IBackdrop;
+                    if (backdrop != null && backdrop.DrawBackdrop(this, g, true))
                     {
-                        // Scaled to cover the banner, anchored right: the picture's subject is on its right.
+                        // The window's own picture shows through, brighter than around the banner.
+                    }
+                    else if (picture != null)
+                    {
+                        // Scaled to cover the banner, anchored right and near the top: the picture's
+                        // subject is on its right and its faces (helmets) in its upper part.
                         float scale = Math.Max(size.Width / (float)picture.Width, size.Height / (float)picture.Height);
                         int width = (int)Math.Ceiling(picture.Width * scale), height = (int)Math.Ceiling(picture.Height * scale);
                         g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                        g.DrawImage(picture, size.Width - width, (size.Height - height) / 2, width, height);
+                        g.DrawImage(picture, size.Width - width, (size.Height - height) / 12, width, height);
                     }
                     else
                     {
@@ -872,7 +924,7 @@ namespace RyGT
         }
     }
 
-    class LoaderForm : Form
+    class LoaderForm : Form, IBackdrop
     {
         static readonly string[] FirmwareModules = { "libSceFont", "libSceFontFt", "libSceFreeTypeOt", "libSceJson2", "libSceNgs2" };
         // Used when present: the JPEG decoder (Scapes thumbnails and backgrounds) and PNG encoder (photos).
@@ -939,10 +991,15 @@ namespace RyGT
             body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             body.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 320));
             body.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            var main = new Card(Dark.Panel) { Dock = DockStyle.Fill, Padding = new Padding(20), Margin = new Padding(0, 0, 12, 0), Radius = 12 };
+            // The launcher picture (launcher\background.png) behind the whole window, the panels and
+            // cards see-through over it; without a picture they are solid.
+            background = LoadBackground();
+            if (background != null) ResizeRedraw = true;
+            var glass = background != null;
+            var main = new Card(glass ? Color.FromArgb(190, 20, 20, 20) : Dark.Panel) { Dock = DockStyle.Fill, Padding = new Padding(20), Margin = new Padding(0, 0, 12, 0), Radius = 12 };
             main.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             body.Controls.Add(main, 0, 0);
-            var side = new Card(Dark.Panel) { Dock = DockStyle.Fill, Padding = new Padding(14, 16, 14, 14), Margin = new Padding(0), Radius = 12 };
+            var side = new Card(glass ? Color.FromArgb(190, 20, 20, 20) : Dark.Panel) { Dock = DockStyle.Fill, Padding = new Padding(14, 16, 14, 14), Margin = new Padding(0), Radius = 12 };
             body.Controls.Add(side, 1, 0);
             Controls.Add(body);
             Controls.Add(footer);
@@ -965,7 +1022,7 @@ namespace RyGT
             pages[0].Controls.Add(home);
 
             // The background picture (launcher\background.png next to RyGT.exe) fills the banner.
-            var hero = new Hero(LoadBackground()) { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 14) };
+            var hero = new Hero(background) { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 14) };
             home.Controls.Add(hero, 0, 0);
             var heroText = new FlowLayoutPanel
             {
@@ -1012,7 +1069,7 @@ namespace RyGT
             modules = AddRow(fileTable, 2, "System modules", settings.Modules);
             fonts = AddRow(fileTable, 3, "Fonts", settings.Fonts);
 
-            var logCard = Section(home, "Set up log");
+            var logCard = Section(home, "Set up log", Dark.Card); // solid: its text box cannot be see-through
             logCard.Margin = new Padding(0);
             logCard.AutoSize = false;
             log = new TextBox
@@ -1269,6 +1326,12 @@ namespace RyGT
             foreach (var column in new[] { settingsPage, controlsPage, side }) Stack(column);
             ShowPage(0);
             Dark.Apply(this);
+            if (glass)
+            {
+                Dark.SeeThrough(this);
+                // A track bar cannot be see-through: about the color of its card over the picture.
+                foreach (var bar in Controls.Find("triggerStrength", true)) bar.BackColor = Color.FromArgb(30, 26, 26);
+            }
             log.BackColor = Dark.Card;
             log.ForeColor = Color.FromArgb(190, 190, 190);
             HandleCreated += delegate { Dark.TitleBar(this); };
@@ -1329,6 +1392,43 @@ namespace RyGT
             Process.Start("explorer.exe", "\"" + root + "\"");
         }
 
+        readonly Image background;
+        Bitmap backdropRaw, backdropDim;
+
+        /// The launcher picture covering the window (anchored right and near the top: its subject is
+        /// on the right and its faces in its upper part), plain and darkened.
+        public bool DrawBackdrop(Control control, Graphics g, bool raw)
+        {
+            if (background == null) return false;
+            var client = ClientSize;
+            if (client.Width <= 0 || client.Height <= 0) return false;
+            if (backdropRaw == null || backdropRaw.Size != client)
+            {
+                if (backdropRaw != null) { backdropRaw.Dispose(); backdropDim.Dispose(); }
+                backdropRaw = new Bitmap(client.Width, client.Height);
+                using (var bg = Graphics.FromImage(backdropRaw))
+                {
+                    float scale = Math.Max(client.Width / (float)background.Width, client.Height / (float)background.Height);
+                    int width = (int)Math.Ceiling(background.Width * scale), height = (int)Math.Ceiling(background.Height * scale);
+                    bg.Clear(Dark.Back);
+                    bg.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                    bg.DrawImage(background, client.Width - width, (client.Height - height) / 12, width, height);
+                }
+                backdropDim = new Bitmap(backdropRaw);
+                using (var bg = Graphics.FromImage(backdropDim))
+                using (var dim = new SolidBrush(Color.FromArgb(120, 8, 8, 8)))
+                    bg.FillRectangle(dim, 0, 0, client.Width, client.Height);
+            }
+            var offset = control == this ? Point.Empty : PointToClient(control.PointToScreen(Point.Empty));
+            g.DrawImageUnscaled(raw ? backdropRaw : backdropDim, -offset.X, -offset.Y);
+            return true;
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            if (!DrawBackdrop(this, e.Graphics, false)) base.OnPaintBackground(e);
+        }
+
         Image LoadBackground()
         {
             foreach (var path in new[] { Path.Combine(root, "launcher", "background.png"), Path.Combine(root, "launcher", "background.jpg") })
@@ -1342,7 +1442,12 @@ namespace RyGT
         /// A titled group on a rounded card.
         TableLayoutPanel Section(TableLayoutPanel parent, string heading)
         {
-            var panel = new Card(Dark.Card)
+            return Section(parent, heading, background != null ? Color.FromArgb(200, 32, 32, 32) : Dark.Card);
+        }
+
+        TableLayoutPanel Section(TableLayoutPanel parent, string heading, Color fill)
+        {
+            var panel = new Card(fill)
             {
                 AutoSize = true, Dock = DockStyle.Fill, Padding = new Padding(16, 12, 16, 14), Margin = new Padding(0, 0, 0, 14)
             };
