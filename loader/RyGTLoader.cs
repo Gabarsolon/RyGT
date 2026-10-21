@@ -736,7 +736,8 @@ namespace RyGT
                                    "mirror_half_rate", false);
             // Controls: which controller is which player (splitscreen) with a live preview, and the
             // controller and keyboard bindings.
-            var controls = Section(right, "Controls");
+            // Under Shaders (moved there below), so the columns end at about the same height.
+            var controls = Section(third, "Controls");
             controls.Controls.Add(new Label
             {
                 Text = "2 players for Arcade's Split Screen: pick each player's name and controller, " +
@@ -852,7 +853,7 @@ namespace RyGT
                 catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
             };
 
-            var logging = Section(third, "Logging");
+            var logging = Section(left, "Logging"); // under Display, where there is room
             logging.Controls.Add(new Label { Text = "stdout.log minimum level", AutoSize = true,
                 BackColor = Color.Transparent, Margin = new Padding(0, 0, 0, 4) });
             var logLevel = new ComboBox { Width = 170, DropDownStyle = ComboBoxStyle.DropDownList,
@@ -869,10 +870,13 @@ namespace RyGT
             logging.Controls.Add(logLevel);
             logging.Controls.Add(new Label { Text = "Selected level and below, on the next launch.\nAll logs are in the logs folder; previous logs are timestamped.",
                 AutoSize = true, MaximumSize = new Size(360, 0), BackColor = Color.Transparent, Margin = new Padding(0, 4, 0, 0) });
+            third.Controls.SetChildIndex(controls, third.Controls.Count - 1);
             column.Controls.Add(grid);
 
-            // Actions on the left; the status line and the log to their right.
-            var bottom = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, BackColor = Color.Transparent, Margin = new Padding(0, 10, 0, 0) };
+            // Actions on the left; the status line and the log to their right. Pinned under the
+            // settings (not scrolled with them), so Play is always in view and focusing it at start
+            // does not scroll the window's top out of view.
+            var bottom = new TableLayoutPanel { Dock = DockStyle.Bottom, Height = 128, ColumnCount = 2, RowCount = 2, BackColor = Color.Transparent, Padding = new Padding(24, 6, 26, 12) };
             bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             bottom.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -893,18 +897,28 @@ namespace RyGT
 
             log = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Height = 110, Dock = DockStyle.Fill, Font = new Font("Consolas", 8.5f) };
             bottom.Controls.Add(log, 1, 1);
-            column.Controls.Add(bottom);
-            foreach (Control control in column.Controls)
+            Controls.Add(bottom);
+            scroll.BringToFront(); // fills what the pinned bar leaves
+            foreach (Control control in column.Controls) column.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            // As tall as the settings need, as far as the screen allows.
+            Load += delegate
             {
-                if (control != bottom) column.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            }
-            column.RowStyles.Add(new RowStyle(SizeType.Absolute, 140));
+                column.PerformLayout();
+                int want = column.Height + scroll.AutoScrollMargin.Height + bottom.Height + 2;
+                int room = Screen.FromControl(this).WorkingArea.Height - (Height - ClientSize.Height) - 16;
+                ClientSize = new Size(ClientSize.Width, Math.Max(MinimumSize.Height - (Height - ClientSize.Height), Math.Min(want, room)));
+                CenterToScreen();
+            };
 
             Dark.Apply(this);
             subtitle.ForeColor = Dark.DimText;
             title.ForeColor = Color.White;
             HandleCreated += delegate { Dark.TitleBar(this); };
-            Shown += delegate { ActiveControl = play.Enabled ? (Control)play : setup; };
+            Shown += delegate
+            {
+                ActiveControl = play.Enabled ? (Control)play : setup;
+                scroll.AutoScrollPosition = new Point(0, 0);
+            };
             RefreshState();
         }
 
@@ -2029,10 +2043,10 @@ namespace RyGT
                     form.ShowInTaskbar = false;
                     form.Show();
                     Application.DoEvents();
-                    var content = form.Controls[0];
-                    using (var image = new Bitmap(content.Width, content.Height))
+                    // The scrolled settings and the pinned bar under them.
+                    using (var image = new Bitmap(form.ClientSize.Width, form.ClientSize.Height))
                     {
-                        content.DrawToBitmap(image, new Rectangle(Point.Empty, content.Size));
+                        foreach (Control control in form.Controls) control.DrawToBitmap(image, control.Bounds);
                         image.Save(args[1], System.Drawing.Imaging.ImageFormat.Png);
                     }
                     form.Close();
