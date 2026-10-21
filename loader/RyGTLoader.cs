@@ -560,9 +560,10 @@ namespace RyGT
                 using (var g = Graphics.FromImage(art))
                 {
                     var backdrop = form as IBackdrop;
-                    if (backdrop != null && backdrop.DrawBackdrop(this, g, true))
+                    if (backdrop != null && backdrop.DrawBackdrop(this, g, false))
                     {
-                        // The window's own picture shows through, brighter than around the banner.
+                        // The window's own picture shows through, behind the same grey glass as the cards.
+                        using (var glass = new SolidBrush(Color.FromArgb(150, 32, 32, 32))) g.FillRectangle(glass, r);
                     }
                     else if (picture != null)
                     {
