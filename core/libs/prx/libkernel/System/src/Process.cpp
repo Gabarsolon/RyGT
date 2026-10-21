@@ -337,4 +337,8 @@ int APS5_VABI sceKernelIsTrinityMode(void) {
     return 0;
 }
 
+int APS5_VABI sceKernelIsNeoMode(void) {
+    return 0;
+}
+
 }

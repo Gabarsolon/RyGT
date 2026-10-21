@@ -39,7 +39,92 @@ std::size_t Utf8PrefixLength(const char* text, std::size_t max_bytes) {
  return offset;
 }
 
+// The GT Sport config next to the game's exe (user/custom_configs/CUSA03220.json) as text.
+std::string ReadGameConfig() {
+#ifdef _WIN32
+ char exe[MAX_PATH] = {};
+ const DWORD length = GetModuleFileNameA(nullptr, exe, MAX_PATH);
+ if (length == 0 || length >= MAX_PATH) return {};
+ std::string path(exe, length);
+ path = path.substr(0, path.find_last_of("\\/") + 1) + "user/custom_configs/CUSA03220.json";
+#else
+ const std::string path = "user/custom_configs/CUSA03220.json";
+#endif
+ std::FILE* file = std::fopen(path.c_str(), "rb");
+ if (file == nullptr) return {};
+ std::string text;
+ char chunk[4096];
+ while (const std::size_t n = std::fread(chunk, 1, sizeof(chunk), file)) text.append(chunk, n);
+ std::fclose(file);
+ return text;
+}
+
+void AppendUtf8(std::string& out, std::uint32_t code) {
+ if (code < 0x80) {
+  out += static_cast<char>(code);
+ } else if (code < 0x800) {
+  out += static_cast<char>(0xc0 | code >> 6);
+  out += static_cast<char>(0x80 | (code & 0x3f));
+ } else if (code < 0x10000) {
+  out += static_cast<char>(0xe0 | code >> 12);
+  out += static_cast<char>(0x80 | (code >> 6 & 0x3f));
+  out += static_cast<char>(0x80 | (code & 0x3f));
+ } else {
+  out += static_cast<char>(0xf0 | code >> 18);
+  out += static_cast<char>(0x80 | (code >> 12 & 0x3f));
+  out += static_cast<char>(0x80 | (code >> 6 & 0x3f));
+  out += static_cast<char>(0x80 | (code & 0x3f));
+ }
+}
+
+// General.player_names (the launcher's Controller ports window): "name 1,name 2", a JSON string.
+// Empty entries (or no setting) keep the default names.
+std::string ConfiguredPlayerName(int slot) {
+ const std::string text = ReadGameConfig();
+ std::size_t at = text.find("\"player_names\"");
+ if (at == std::string::npos) return {};
+ at = text.find(':', at);
+ if (at == std::string::npos) return {};
+ at = text.find('"', at);
+ if (at == std::string::npos) return {};
+ std::string value;
+ for (++at; at < text.size() && text[at] != '"'; ++at) {
+  if (text[at] != '\\' || at + 1 >= text.size()) {
+   value += text[at];
+   continue;
+  }
+  const char escaped = text[++at];
+  if (escaped == 'u' && at + 4 < text.size()) {
+   std::uint32_t code = static_cast<std::uint32_t>(std::strtoul(text.substr(at + 1, 4).c_str(), nullptr, 16));
+   at += 4;
+   // A surrogate pair: \uD8xx\uDCxx.
+   if (code >= 0xd800 && code < 0xdc00 && at + 6 < text.size() && text[at + 1] == '\\' && text[at + 2] == 'u') {
+    const auto low = static_cast<std::uint32_t>(std::strtoul(text.substr(at + 3, 4).c_str(), nullptr, 16));
+    if (low >= 0xdc00 && low < 0xe000) {
+     code = 0x10000 + ((code - 0xd800) << 10) + (low - 0xdc00);
+     at += 6;
+    }
+   }
+   AppendUtf8(value, code);
+  } else {
+   value += escaped == 'n' ? '\n' : escaped == 't' ? '\t' : escaped;
+  }
+ }
+ std::size_t start = 0;
+ for (int i = 0; i < slot; ++i) {
+  start = value.find(',', start);
+  if (start == std::string::npos) return {};
+  ++start;
+ }
+ std::string name = value.substr(start, value.find(',', start) - start);
+ const auto first = name.find_first_not_of(' ');
+ if (first == std::string::npos) return {};
+ return name.substr(first, name.find_last_not_of(' ') - first + 1);
+}
+
 std::string ConfiguredUserName() {
+ const std::string configured = ConfiguredPlayerName(0);
+ if (!configured.empty()) return configured;
 #ifdef _WIN32
  const wchar_t* configured_name = _wgetenv(L"RYGT_USER_NAME");
  if (configured_name == nullptr || configured_name[0] == L'\0') return "Player";
@@ -60,9 +145,10 @@ std::string ConfiguredUserName() {
 
 namespace {
 
-constexpr int MAX_PLAYERS = 4;
-// Players logged in (bit N = player N+1, user id 0x10000000 + N). Player 1 always is; the others
-// log in while a controller is assigned to them (UserServiceSetPlayers, from the input bridge).
+// GT Sport's Split Screen is for 2 players (the input bridge reports up to 4; 3 and 4 are ignored).
+constexpr int MAX_PLAYERS = 2;
+// Players logged in (bit N = player N+1, user id 0x10000000 + N). Player 1 always is; player 2
+// logs in while a controller is assigned to them (UserServiceSetPlayers, from the input bridge).
 std::atomic<std::uint32_t> g_players{1};
 std::atomic<std::uint32_t> g_reported{0};
 
@@ -78,6 +164,16 @@ bool Valid(int user_id) {
 }
 
 extern "C" {
+
+int APS5_VABI sceUserServiceIsLoggedIn() {
+    return 0;
+}
+
+int APS5_VABI sceUserServiceGetUserColor(int user_id, void* color) {
+    (void)user_id;
+    (void)color;
+    return 0;
+}
 
 void UserServiceSetPlayers_nid_postfix(std::uint32_t mask) {
  g_players.store((mask | 1u) & ((1u << MAX_PLAYERS) - 1u));
@@ -130,8 +226,8 @@ int APS5_VABI sceUserServiceGetAgeLevel(int user_id, uint32_t* age_level) {
  return 0;
 }
 
-// Player 1 is reported as logging in first; players 2-4 log in and out as their controllers come
-// and go.
+// Player 1 is reported as logging in first; player 2 logs in and out as their controller comes
+// and goes.
 int APS5_VABI sceUserServiceGetEvent(SceUserServiceEvent* event) {
  if (event == nullptr) {
   return USER_SERVICE_ERROR_INVALID_ARGUMENT;
@@ -186,7 +282,8 @@ int APS5_VABI sceUserServiceGetLoginUserIdList(UserServiceLoginUserIdList* user_
  for (int slot = 0; slot < MAX_PLAYERS; ++slot) {
   if ((players >> slot & 1u) != 0) user_id_list->user_id[n++] = USER_SERVICE_INITIAL_USER_ID + slot;
  }
- while (n < MAX_PLAYERS) user_id_list->user_id[n++] = USER_SERVICE_USER_ID_INVALID;
+ while (n < static_cast<int>(sizeof(user_id_list->user_id) / sizeof(user_id_list->user_id[0])))
+  user_id_list->user_id[n++] = USER_SERVICE_USER_ID_INVALID;
  return USER_SERVICE_OK;
 }
 
@@ -198,9 +295,21 @@ int APS5_VABI sceUserServiceGetUserName(int user_id, char* name, size_t size) {
   return USER_SERVICE_ERROR_BUFFER_TOO_SHORT;
  }
  if (SlotOf(user_id) == 0) {
-  std::strncpy(name, USER_SERVICE_INITIAL_USER_NAME, size);
+  // Player 1: the name from the launcher, else RYGT_USER_NAME, else "Player".
+  const std::string configured_name = ConfiguredUserName();
+  const size_t name_length = Utf8PrefixLength(configured_name.c_str(), USER_SERVICE_MAX_USER_NAME_LENGTH);
+  std::memcpy(name, configured_name.c_str(), name_length);
+  name[name_length] = '\0';
  } else {
-  std::snprintf(name, size, "Player %d", SlotOf(user_id) + 1);
+  // Player 2: the name from the launcher, else "Player 2". Cut to 16 bytes on a UTF-8 boundary.
+  const std::string configured_name = ConfiguredPlayerName(SlotOf(user_id));
+  if (configured_name.empty()) {
+   std::snprintf(name, size, "Player %d", SlotOf(user_id) + 1);
+  } else {
+   const size_t name_length = Utf8PrefixLength(configured_name.c_str(), USER_SERVICE_MAX_USER_NAME_LENGTH);
+   std::memcpy(name, configured_name.c_str(), name_length);
+   name[name_length] = '\0';
+  }
  }
  return USER_SERVICE_OK;
 }

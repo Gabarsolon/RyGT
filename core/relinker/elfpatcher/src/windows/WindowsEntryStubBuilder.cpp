@@ -97,7 +97,7 @@ WindowsEntryStub WindowsEntryStubBuilder::Build(const std::uint32_t dataRva, con
     const auto newline = addString("\n");
     const auto searched = addString("Searched libraries:\n");
     const auto indent = addString("  ");
-    const auto enteringElf = addString("Transferring control to ELF entry point\n");
+
     std::vector<std::uint32_t> resolvedPaths;
     for (std::size_t index = 0; index < libraries.size(); ++index)
         resolvedPaths.push_back(reserve(PathCapacity));
@@ -335,7 +335,7 @@ WindowsEntryStub WindowsEntryStubBuilder::Build(const std::uint32_t dataRva, con
     }
 
     guestStartup.Initialize(code, guestModules, handles);
-    writeString(enteringElf);
+    // Normal startup stays silent; loader failures still report to stderr.
     code.Rip({0x48, 0x8d, 0x0d}, shellLibrary);
     code.Emit({0x31, 0xd2, 0x41, 0xb8, 0, 8, 0, 0});
     call("LoadLibraryExA");
