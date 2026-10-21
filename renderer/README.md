@@ -53,6 +53,14 @@ itself ("[game] fatal error at <file>(<line>): <message>"). Patch 0046 (DIAG-163
 scripts the game loads at start-up ("[boot] script <n> (+<ms> ms): <unit>"; `RYGT_LOG_BOOT=0` turns it
 off), to show how far a boot that ends early got.
 
+Patch 0042 (Gabarsolon) fixes Intel Arc rendering, compute barrier deadlocks, and DirectMemory performance
+on the native renderer:
+- Replaces `OpControlBarrier` with `OpMemoryBarrier` in compute shaders when `subgroup_size < 64`, avoiding
+  hardware EU arrival counter hangs in wave64-uniform branches.
+- Removes Intel from `needs_lds_barriers` to match AMD.
+- Unconditionally binds compute pipelines in `DispatchDirect` and `DispatchIndirect` on the primary command stream.
+- Selects `HOST_CACHED` (Type 2) memory for host-imported buffers in `DirectMemory` and `ImportHostMemory`.
+
 `0019-ghost-quad-sample-mask` (Gabarsolon) is applied in shadGT after the native renderer, merged
 with its larger push block (the quad sample mask follows the four buffer-offset vectors).
 
