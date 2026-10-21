@@ -406,7 +406,7 @@ namespace RyGT
         readonly string root = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
         readonly Settings settings;
         readonly TextBox game, update, modules, fonts, log;
-        readonly Button setup, play;
+        readonly Button setup, play, addDlss;
         readonly Label status;
         volatile bool busy;
 
@@ -509,10 +509,66 @@ namespace RyGT
             // newer, Windows' hardware-accelerated GPU scheduling on). One frame generation at a time.
             bool dlssInstalled = File.Exists(Path.Combine(root, "dlss", "ryGT_dlss.dll")) &&
                                  File.Exists(Path.Combine(root, "dlss", "nvngx_dlss.dll"));
-            var dlss = AddOption(graphics, dlssInstalled
-                ? "Upscale with NVIDIA DLSS (RTX cards; instead of FSR)"
-                : "Upscale with NVIDIA DLSS (needs the dlss folder)", "GPU", "dlss_enabled", false);
+            var dlssRow = new TableLayoutPanel
+            {
+                ColumnCount = 2, AutoSize = true, Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0)
+            };
+            dlssRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            dlssRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            graphics.Controls.Add(dlssRow);
+            var dlss = AddOption(dlssRow, dlssInstalled
+                ? "NVIDIA DLSS (RTX)"
+                : "NVIDIA DLSS (not installed)", "GPU", "dlss_enabled", false);
             dlss.Enabled = dlssInstalled;
+            dlss.Anchor = AnchorStyles.Left;
+            addDlss = new Button { Text = "Add DLSS file...", AutoSize = true, Margin = new Padding(4, 0, 0, 0) };
+            dlssRow.Controls.Add(addDlss, 1, 0);
+            addDlss.Click += delegate
+            {
+                try
+                {
+                    var games = Process.GetProcessesByName("GTSport");
+                    bool gameRunning = games.Length != 0;
+                    foreach (var process in games) process.Dispose();
+                    if (gameRunning) throw new Exception("Close GT Sport before replacing the DLSS file.");
+                    using (var dialog = new OpenFileDialog
+                    {
+                        Title = "Select NVIDIA DLSS Super Resolution (nvngx_dlss.dll)",
+                        Filter = "NVIDIA DLSS (nvngx_dlss.dll)|nvngx_dlss.dll", CheckFileExists = true,
+                        Multiselect = false, RestoreDirectory = true
+                    })
+                    {
+                        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                        InstallDlssLibrary(dialog.FileName, Path.Combine(root, "dlss"));
+                    }
+                    dlssInstalled = File.Exists(Path.Combine(root, "dlss", "ryGT_dlss.dll"));
+                    dlss.Enabled = dlssInstalled;
+                    dlss.Text = dlssInstalled ? "NVIDIA DLSS (RTX)" : "NVIDIA DLSS (not installed)";
+                    status.Text = dlssInstalled ? "DLSS file added. It will be used the next time you start the game."
+                                               : "DLSS file added. ryGT_dlss.dll is still missing from the dlss folder.";
+                }
+                catch (Exception e) { MessageBox.Show(this, "Could not add the DLSS file: " + e.Message); }
+            };
+            graphics.Controls.Add(new Label
+            {
+                Text = "Internal resolution: up to 1920 x 1080.\nAt 4K output, DLSS corresponds to Performance mode.",
+                AutoSize = true, MaximumSize = new Size(330, 0), BackColor = Color.Transparent,
+                Margin = new Padding(22, 2, 0, 6)
+            });
+            fsr.CheckedChanged += delegate { if (fsr.Checked && dlss.Checked) dlss.Checked = false; };
+            Action updateDlss = delegate
+            {
+                if (!dlss.Checked) return;
+                if (fsr.Checked) fsr.Checked = false;
+                try
+                {
+                    if (ReadStringSetting("GPU", "dlss_quality", "performance") != "performance")
+                        WriteSetting("GPU", "dlss_quality", "performance");
+                }
+                catch (Exception e) { MessageBox.Show(this, "Could not save the DLSS setting: " + e.Message); }
+            };
+            dlss.CheckedChanged += delegate { updateDlss(); };
+            updateDlss();
             bool dlssgInstalled = File.Exists(Path.Combine(root, "dlss", "sl.interposer.dll")) &&
                                   File.Exists(Path.Combine(root, "dlss", "nvngx_dlssg.dll"));
             var dlssg = AddOption(graphics, dlssgInstalled
@@ -529,6 +585,14 @@ namespace RyGT
             // GTS-008: the rear-view mirror is redrawn every second frame (its picture is kept).
             var mirror = AddOption(graphics, "Rear-view mirror at half rate (a little faster)", "GPU",
                                    "mirror_half_rate", false);
+            Action updateMirror = delegate
+            {
+                mirror.Enabled = !dlss.Checked;
+                mirror.Text = dlss.Checked ? "Half-rate rear-view mirror (disabled by DLSS)"
+                                          : "Rear-view mirror at half rate (a little faster)";
+            };
+            dlss.CheckedChanged += delegate { updateMirror(); };
+            updateMirror();
             // Controls: which controller is which player (splitscreen) with a live preview, and the
             // controller and keyboard bindings.
             var controls = Section(right, "Controls");
@@ -997,11 +1061,53 @@ namespace RyGT
             return parsed as Dictionary<string, object> ?? new Dictionary<string, object>();
         }
 
+        internal static void InstallDlssLibrary(string source, string directory)
+        {
+            if (!string.Equals(Path.GetFileName(source), "nvngx_dlss.dll", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("Select the NVIDIA Super Resolution file named nvngx_dlss.dll.");
+            using (var reader = new BinaryReader(File.OpenRead(source)))
+            {
+                if (reader.BaseStream.Length < 64 || reader.ReadUInt16() != 0x5a4d)
+                    throw new InvalidDataException("The selected file is not a Windows DLL.");
+                reader.BaseStream.Position = 0x3c;
+                int pe = reader.ReadInt32();
+                if (pe < 64 || pe > reader.BaseStream.Length - 26)
+                    throw new InvalidDataException("The selected DLL has an invalid PE header.");
+                reader.BaseStream.Position = pe;
+                if (reader.ReadUInt32() != 0x4550 || reader.ReadUInt16() != 0x8664)
+                    throw new InvalidDataException("DLSS requires a 64-bit Windows DLL.");
+                reader.BaseStream.Position = pe + 22;
+                if ((reader.ReadUInt16() & 0x2000) == 0 || reader.ReadUInt16() != 0x20b)
+                    throw new InvalidDataException("DLSS requires a 64-bit Windows DLL.");
+            }
+            var version = FileVersionInfo.GetVersionInfo(source);
+            if ((version.CompanyName ?? "").IndexOf("NVIDIA", StringComparison.OrdinalIgnoreCase) < 0 ||
+                (version.FileDescription ?? "").IndexOf("DLSS", StringComparison.OrdinalIgnoreCase) < 0)
+                throw new InvalidDataException("The selected file is not an NVIDIA DLSS library.");
+            string destination = Path.Combine(directory, "nvngx_dlss.dll");
+            if (string.Equals(Path.GetFullPath(source), Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase)) return;
+            Directory.CreateDirectory(directory);
+            string temporary = destination + ".install-" + Guid.NewGuid().ToString("N");
+            try
+            {
+                File.Copy(source, temporary);
+                if (File.Exists(destination))
+                    File.Replace(temporary, destination, destination + "." + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fffffff") + ".bak");
+                else
+                    File.Move(temporary, destination);
+            }
+            finally
+            {
+                if (File.Exists(temporary)) File.Delete(temporary);
+            }
+        }
+
         void RefreshState()
         {
             bool ready = File.Exists(Exe) && Directory.Exists(Path.Combine(root, "app0", "sce_module"));
             play.Enabled = ready && !busy;
             setup.Enabled = !busy;
+            addDlss.Enabled = !busy;
             if (!busy) status.Text = ready ? "Ready. Press Play." : "Not set up yet. Pick the folders and press Set up.";
         }
 
