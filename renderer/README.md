@@ -82,3 +82,10 @@ launcher's Display > Screen shape > "Fill the screen", is the shape of the game'
 also "21:9", "32:9", width:height or a number; `RYGT_ASPECT` overrides it) widens the race camera's
 16:9 aspect (eboot 0x5e717f) and stretches the picture over the whole window instead of black
 bars. The HUD and menus are stretched with the picture; 16:9, the default, changes nothing.
+
+Patches 0058 and 0059 limit 0042-intel-arc to Intel GPUs. On NVIDIA its shader translation turned
+races red with magenta cars (memory-only compute barriers and 64-bit shared memory as 32-bit halves,
+with an empty shader store), and it also turned direct memory off and undid SanitizeCopyLayers for
+every GPU. 0058 reverts it; 0059 (FIX-188) brings its Intel Arc changes back behind
+`Instance::IsIntel()` (vendor 0x8086), so every other GPU runs what it ran before 0042-intel-arc.
+`ryty-gpu` and `linux-proton` have every patch through 0059 (commit `1d13c88d`).
