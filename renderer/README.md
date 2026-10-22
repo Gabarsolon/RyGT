@@ -61,6 +61,11 @@ on the native renderer:
 - Unconditionally binds compute pipelines in `DispatchDirect` and `DispatchIndirect` on the primary command stream.
 - Selects `HOST_CACHED` (Type 2) memory for host-imported buffers in `DirectMemory` and `ImportHostMemory`.
 
+Despite its number, 0042-intel-arc applies after 0053 and before 0054 (it was written later). The copy
+here is UTF-8 (the first one was UTF-16, which `git apply` can't read) and has two conflicts resolved:
+`log.cpp` keeps the leveled stdout without a renderer log file (0029/0048), and FIX-171's rectangle and
+packed texture probes get the same transfer-to-host barrier as the patch's general probe.
+
 `0019-ghost-quad-sample-mask` (Gabarsolon) is applied in shadGT after the native renderer, merged
 with its larger push block (the quad sample mask follows the four buffer-offset vectors).
 
