@@ -54,6 +54,19 @@ itself ("[game] fatal error at <file>(<line>): <message>"). Patch 0046 (DIAG-163
 scripts the game loads at start-up ("[boot] script <n> (+<ms> ms): <unit>"; `RYGT_LOG_BOOT=0` turns it
 off), to show how far a boot that ends early got.
 
+Patch 0042 (Gabarsolon) fixes Intel Arc rendering, compute barrier deadlocks, and DirectMemory performance
+on the native renderer:
+- Replaces `OpControlBarrier` with `OpMemoryBarrier` in compute shaders when `subgroup_size < 64`, avoiding
+  hardware EU arrival counter hangs in wave64-uniform branches.
+- Removes Intel from `needs_lds_barriers` to match AMD.
+- Unconditionally binds compute pipelines in `DispatchDirect` and `DispatchIndirect` on the primary command stream.
+- Selects `HOST_CACHED` (Type 2) memory for host-imported buffers in `DirectMemory` and `ImportHostMemory`.
+
+Despite its number, 0042-intel-arc applies after 0053 and before 0054 (it was written later). The copy
+here is UTF-8 (the first one was UTF-16, which `git apply` can't read) and has two conflicts resolved:
+`log.cpp` keeps the leveled stdout without a renderer log file (0029/0048), and FIX-171's rectangle and
+packed texture probes get the same transfer-to-host barrier as the patch's general probe.
+
 `0019-ghost-quad-sample-mask` (Gabarsolon) is applied in shadGT after the native renderer, merged
 with its larger push block (the quad sample mask follows the four buffer-offset vectors).
 
@@ -102,3 +115,9 @@ every internal game pass render at that resolution.
 The launcher retains main's tabbed layout, renderer choice, ultrawide options, wheel support,
 and temporal DLSS behavior. The shader-pack preparation destination retains the upstream
 Hotfix 2 correction (`CUSA03220-direct-sets`).
+Patches 0058 and 0059 limit 0042-intel-arc to Intel GPUs. On NVIDIA its shader translation turned
+races red with magenta cars (memory-only compute barriers and 64-bit shared memory as 32-bit halves,
+with an empty shader store), and it also turned direct memory off and undid SanitizeCopyLayers for
+every GPU. 0058 reverts it; 0059 (FIX-188) brings its Intel Arc changes back behind
+`Instance::IsIntel()` (vendor 0x8086), so every other GPU runs what it ran before 0042-intel-arc.
+`ryty-gpu` and `linux-proton` have every patch through 0059 (commit `1d13c88d`).
